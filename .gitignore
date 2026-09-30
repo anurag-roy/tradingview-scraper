@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.scratch/
+output/
+.auth/
+google-service-account*.json
+service-account*.json
+credentials*.json
+*.log

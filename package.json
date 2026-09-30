@@ -1,0 +1,21 @@
+{
+  "name": "tradingview-scraper-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TradingView OHLCV and LuxAlgo Volume Delta Candles data feasibility probe",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "snapshot": "node --env-file-if-exists=.env src/cli.js --seconds 15",
+    "watch": "node --env-file-if-exists=.env src/cli.js --seconds 600",
+    "login": "node --env-file-if-exists=.env src/login.js",
+    "config": "node --env-file-if-exists=.env src/read-config.js"
+  },
+  "dependencies": {
+    "@mathieuc/tradingview": "3.5.2",
+    "google-auth-library": "11.1.0",
+    "puppeteer": "25.12.0"
+  }
+}

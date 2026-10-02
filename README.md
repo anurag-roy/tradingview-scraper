@@ -35,11 +35,13 @@ ending at midnight. Omitted/blank values default to `03:30` and `14:00`.
 End must be later than open in the same IST day; overnight windows are not
 supported. Restart the monitor after changing these settings.
 
-Startup/reconnect recovers today's history but evaluates **only the latest
-closed candle**, then future closes. It never searches backward for an older
-qualifying signal. Each signal gets one Telegram request, with no retries.
-Persistent state prevents repeat attempts across restarts. Later candle
-revisions are logged without correction messages.
+Startup/reconnect during monitoring hours evaluates **all unprocessed closed
+candles since today's configured opening time**, then future closes. Each
+qualifying candle gets its own Telegram message, including its candle time.
+Messages are queued individually with at least 3.1 seconds between requests.
+Persistent state prevents repeat attempts across restarts; queued messages
+that haven't been attempted resume on recovery. Failed or uncertain attempts
+are never retried. Later candle revisions are logged without correction messages.
 
 See [the full signal rules and operating details](docs/signal-monitor.md),
 including cutoff behavior, local delivery logs, and crash recovery.

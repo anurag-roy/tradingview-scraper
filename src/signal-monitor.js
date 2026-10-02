@@ -1,6 +1,7 @@
 import { fork } from 'node:child_process';
 import { candleSignature, evaluateSignal, formatSignal } from './signals.js';
 import { sessionAt, canDeliver, CLOSE_GRACE_MS } from './session.js';
+import { DeliveryQueue } from './delivery-queue.js';
 
 export async function monitor({ subscriptions, store, send, hours, dryRun, inspect, seconds }) {
   let child = null;
@@ -12,7 +13,7 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
   let dirty = false;
   let recovered = new Set();
   let boundaryLive = new Set();
-  const pendingSends = new Set();
+  const deliveries = new DeliveryQueue(fatal);
   let finish;
   const done = new Promise(resolve => { finish = resolve; });
   const log = (type, details) => store.log(type, details);
@@ -39,9 +40,10 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
     stopping = true;
     clearInterval(tick); clearInterval(flush); clearTimeout(limit);
     process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt);
+    const closingDeliveries = deliveries.close();
     try {
       await stopChild();
-      await Promise.allSettled([...pendingSends]);
+      await closingDeliveries;
       saveSnapshot();
     } catch (error) {
       console.error(error.message);
@@ -52,6 +54,26 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
     console.error(error.message);
     process.exitCode = 1;
     void shutdown();
+  }
+
+  function queueDelivery(id, key, record, closeTime) {
+    if (dryRun || !canDeliver(closeTime, Date.now(), activeSession, boundaryLive.has(key))) return;
+    const session = activeSession;
+    deliveries.enqueue(id, async () => {
+      if (stopping || record.status !== 'queued' || store.data.day !== session.day ||
+        !canDeliver(closeTime, Date.now(), session, boundaryLive.has(key))) return false;
+      // Reserve only when this request is about to start. A queued message
+      // survives a restart without being mistaken for an attempted delivery.
+      record.status = 'attempting';
+      record.attemptedAt = new Date().toISOString();
+      store.save();
+      const outcome = await send(record.text);
+      Object.assign(record, outcome, { completedAt: new Date().toISOString() });
+      store.save();
+      log('telegram_result', { id, ...outcome });
+      console.log(`Telegram ${outcome.status}: ${id}${outcome.errorCode ? ` (code ${outcome.errorCode})` : ''}`);
+      return true;
+    });
   }
 
   function accept(packet) {
@@ -66,18 +88,18 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
     if (!packet.historyCovered) return;
     const stream = store.data.streams[key] ||= { ignoredThrough: activeSession.start / 1000 - 1 };
     if (!recovered.has(key)) {
-      // The latest native closed candle sets the recovery boundary even when
-      // its POC is not ready. Never search backward for a qualifying signal.
-      stream.ignoredThrough = Math.max(stream.ignoredThrough,
-        latestClosedTime === null ? activeSession.start / 1000 - 1 : latestClosedTime - 1);
+      // Replace legacy latest-only watermarks, preserving per-candle records.
+      // All unprocessed candles since today's open can now produce alerts.
+      stream.ignoredThrough = activeSession.start / 1000 - 1;
       recovered.add(key);
       if (now < activeSession.end) boundaryLive.add(key);
       store.save();
-      log('recovered_history', { key, ignoredThrough: stream.ignoredThrough, latestClosedTime });
+      log('recovered_history', { key, mode: 'all-unprocessed-session-candles', ignoredThrough: stream.ignoredThrough, latestClosedTime });
     }
     for (const [index, row] of rows.entries()) {
       const id = `${key}|${row.time}`;
       const signature = candleSignature(row);
+      const closeTime = (row.time + Number(timeframe) * 60) * 1000;
       const prior = store.data.records[id];
       if (prior) {
         if (row.confirmed && Number.isFinite(row.poc) && prior.lastSignature !== signature) {
@@ -85,10 +107,10 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
           prior.lastSignature = signature;
           store.save();
         }
+        if (prior.status === 'queued') queueDelivery(id, key, prior, closeTime);
         continue;
       }
       if (row.time <= stream.ignoredThrough || !row.confirmed || !Number.isFinite(row.poc)) continue;
-      const closeTime = (row.time + Number(timeframe) * 60) * 1000;
       if (!canDeliver(closeTime, now, activeSession, boundaryLive.has(key))) continue;
       const result = evaluateSignal(rows, index, timeframe);
       // Wait for missing/invalid values to recover instead of freezing a
@@ -97,25 +119,18 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
       const text = result.side ? formatSignal(symbol, timeframe, result, pricescale, row.time) : null;
       const record = {
         evaluatedAt: new Date(now).toISOString(), lastSignature: signature,
-        result, text, status: text ? (dryRun ? 'dry-run' : 'attempting') : 'no-signal',
+        result, text, status: text ? (dryRun ? 'dry-run' : 'queued') : 'no-signal',
         boundaryDelayMs: now - closeTime,
       };
       store.data.records[id] = record;
-      // Durable reservation BEFORE the HTTP request. If the process crashes
-      // mid-send, 'attempting' means uncertain and is never retried.
+      // Save the decision before queuing; each request gets a durable attempt
+      // reservation separately, immediately before contacting Telegram.
       store.save();
       log('evaluated', { id, ...record });
       if (!text) continue;
       console.log(`${dryRun ? '[dry-run] ' : ''}${text} | receipt delay ${record.boundaryDelayMs} ms`);
       if (dryRun) continue;
-      const delivery = send(text).then(outcome => {
-        Object.assign(record, outcome, { completedAt: new Date().toISOString() });
-        store.save();
-        log('telegram_result', { id, ...outcome });
-        console.log(`Telegram ${outcome.status}: ${id}${outcome.errorCode ? ` (code ${outcome.errorCode})` : ''}`);
-      }).catch(fatal);
-      pendingSends.add(delivery);
-      void delivery.finally(() => pendingSends.delete(delivery));
+      queueDelivery(id, key, record, closeTime);
     }
   }
 
@@ -154,7 +169,7 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
       const delay = Math.min(60_000, 5000 * 2 ** Math.min(failures++, 4));
       nextConnect = Date.now() + delay;
       log('disconnected', { reconnectDelayMs: delay });
-      console.log(`Disconnected; next in-session connection in ${delay / 1000}s. History will be recovered without replaying alerts.`);
+      console.log(`Disconnected; next in-session connection in ${delay / 1000}s. Unprocessed signals since today's open will be recovered.`);
     });
     collector.send({ subscriptions, session: activeSession });
   }
@@ -171,8 +186,9 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
         // A 24:00 cutoff belongs to the previous session. Keep its live stream
         // for the normal close grace before rotating state to the new day.
         if (child && activeSession && now <= activeSession.end + CLOSE_GRACE_MS) return;
+        deliveries.clear();
         await stopChild();
-        await Promise.allSettled([...pendingSends]);
+        await deliveries.active;
         if (stopping) return;
         activeSession = session;
         store.useDay(session.day);

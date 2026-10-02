@@ -22,7 +22,7 @@
 
 ## Conditions and messages
 
-| Side | Conditions | Last message field |
+| Side | Conditions | High/Low field |
 | --- | --- | --- |
 | Buy | close > open AND POC < open AND volume > previous volume | candle low |
 | Sell | close < open AND POC > open AND volume > previous volume | candle high |
@@ -57,23 +57,38 @@ Candle Time is the candle's native opening timestamp, displayed as
 The collector requests more than one calendar day's native history on each
 connection and waits for the LuxAlgo study's initial completion. Only this
 session's candles are retained by the monitor. An incomplete history does not
-produce alerts. All recovered candles support volume comparisons, but only
-the latest native closed candle per stream can qualify on startup/reconnect.
-If its POC is missing, wait for it rather than using an older candle. Future
-closes are then evaluated as they become complete. There is no backlog replay.
+produce alerts. On startup or reconnect during monitoring hours, evaluate
+**every unprocessed closed candle since the configured opening time**. Each
+qualifying candle produces its own message with its original candle time.
+Candles are evaluated oldest first within each stream; streams load independently,
+so delivery order across symbols/timeframes is not globally chronological.
+Missing POC values wait for complete data. Future closes continue normally.
+Legacy latest-only watermarks are reset automatically, while existing per-candle
+evaluation and delivery records are preserved to prevent duplicate attempts.
 
 Evaluation is once per symbol + timeframe + opening timestamp. Later revisions
 are logged locally, never reevaluated for a correction message. Volume
 comparisons for subsequent candles use the latest recovered source values.
 
-Before sending, the monitor durably records `attempting`. It makes exactly one
+Signals are durably saved as `queued` and sent individually, with at least
+3.1 seconds between requests and only one request in flight. This spaces out
+backlogs for the [Telegram chat/group limits](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this).
+The first message can send immediately when the queue is idle. Messages still
+queued when the app stops can resume on the next in-session startup; they have
+not made a delivery attempt yet. New signals join the same queue.
+
+Immediately before sending, the monitor durably records `attempting`. It makes exactly one
 [Telegram sendMessage](https://core.telegram.org/bots/api#sendmessage) request,
 with a 10-second timeout and no retries or redirects. Success records `sent`
 and the message ID; a known rejection records `failed` and the HTTP/API code;
 an ambiguous response, network failure or timeout records `uncertain`.
-Raw API responses and token-bearing URLs are never logged. Concurrent signals
-are sent independently; Telegram rate-limit rejections are recorded without
-retrying, just like other delivery failures.
+Raw API responses and token-bearing URLs are never logged. Telegram rate-limit
+rejections are recorded without retrying, just like other delivery failures.
+Attempted messages (including failed, uncertain or interrupted attempts) are
+not replayed during catch-up. The trading-window check also runs before each
+queued request: backlog messages cannot start after the cutoff. Only normal
+closing-boundary messages have the existing 60-second grace. Unsent queues
+from an earlier day are discarded when the daily state rotates.
 
 A crash can leave `attempting`, treated as uncertain and never resent. This
 prevents duplicate attempts but can lose a message if the process crashes
@@ -126,3 +141,12 @@ Using the actual Sheet, saved login, six FXCM symbols, and 15m/30m/1h intervals:
 The Telegram credentials were absent during this capture. Outbound delivery,
 live close latency, and long-running recovery still need observation during
 an actual in-session run. No automated tests were written or run.
+
+## Catch-up preview, 2 October 2026
+
+A live preview using the actual Sheet and configured 00:00–24:00 IST window
+evaluated 581 closed candles across 18 streams and printed 48 individual
+historical signal messages with candle times. Restarting the preview with the
+same state printed no duplicate signals and retained the same evaluation count.
+No Telegram requests were made; outbound queue pacing remains unverified with
+Telegram. No automated tests were added or run.

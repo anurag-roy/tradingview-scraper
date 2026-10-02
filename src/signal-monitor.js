@@ -94,7 +94,7 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
       // Wait for missing/invalid values to recover instead of freezing a
       // decision based on an incomplete chart packet.
       if (['incomplete-values', 'missing-previous-candle', 'incomplete-volume-history'].includes(result.reason)) continue;
-      const text = result.side ? formatSignal(symbol, timeframe, result, pricescale) : null;
+      const text = result.side ? formatSignal(symbol, timeframe, result, pricescale, row.time) : null;
       const record = {
         evaluatedAt: new Date(now).toISOString(), lastSignature: signature,
         result, text, status: text ? (dryRun ? 'dry-run' : 'attempting') : 'no-signal',

@@ -1,3 +1,5 @@
+import { formatIst } from './candles.js';
+
 const aliases = { 'FX:XAUUSD': 'GOLD' };
 
 export function candleSignature(row) {
@@ -32,7 +34,7 @@ export function evaluateSignal(rows, index, timeframe) {
   return { side, x, price: side === 'Buy' ? current.low : current.high };
 }
 
-export function formatSignal(symbol, timeframe, signal, pricescale) {
+export function formatSignal(symbol, timeframe, signal, pricescale, candleTime) {
   const underlying = aliases[symbol] || symbol.split(':').at(-1);
   const minutes = Number(timeframe);
   const interval = minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
@@ -41,5 +43,6 @@ export function formatSignal(symbol, timeframe, signal, pricescale) {
   const decimals = Number.isFinite(pricescale) && pricescale > 0
     ? Math.min(12, Math.max(0, Math.ceil(Math.log10(pricescale)))) : 10;
   const price = String(Number(signal.price.toFixed(decimals)));
-  return `${underlying} : ${signal.side} : ${interval} : ${signal.x} : ${price}`;
+  const time = `${formatIst(candleTime).slice(0, 16).replace('T', ' ')} IST`;
+  return `${underlying} : ${signal.side} : ${interval} : ${signal.x} : ${price} : ${time}`;
 }

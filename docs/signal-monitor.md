@@ -39,15 +39,18 @@ Unexplained timestamp gaps or invalid volumes withhold an alert when the
 previous candle or exact x cannot be established.
 
 ```text
-Underlying : Buy/Sell : Time frame : x : Low/High
-GOLD : Buy : 15m : 2 : 432.5
-GOLD : Sell : 1h : 3 : 438.7
+Underlying : Buy/Sell : Time frame : x : Low/High : Candle Time
+GOLD : Buy : 15m : 2 : 432.5 : 2026-10-02 09:30 IST
+GOLD : Sell : 1h : 3 : 438.7 : 2026-10-02 10:30 IST
 ```
 
 `FX:XAUUSD` maps to GOLD. All other symbols use the suffix after `:`:
 USOIL, BTCUSD, EURUSD, GBPUSD, USDJPY for the current Sheet. Timeframes are
 displayed as 15m, 30m, 1h, etc. Prices follow the feed's price scale with
 unnecessary trailing zeros removed. Messages are plain text in one destination.
+
+Candle Time is the candle's native opening timestamp, displayed as
+`YYYY-MM-DD HH:mm IST`. It is not the close time or the message delivery time.
 
 ## Recovery, revisions and delivery
 

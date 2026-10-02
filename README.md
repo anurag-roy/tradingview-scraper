@@ -20,7 +20,8 @@ npm run preview -- --inspect --seconds 40  # Inspect today's data outside hours 
 The monitor requires the Google Sheet and saved TradingView login. It runs
 daily from **03:30 to 14:00 IST by default**, waiting between sessions. It evaluates only
 fully closed candles inside that window using the agreed green/red, POC and
-volume rules. Example message: `GOLD : Buy : 15m : 2 : 432.5`.
+volume rules. Example message: `GOLD : Buy : 15m : 2 : 432.5 : 2026-10-02 09:30 IST`.
+The final field is the candle's opening date and time in IST.
 
 Configure the window in `.env` using 24-hour IST times. For a full calendar day:
 

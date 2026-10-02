@@ -44,8 +44,11 @@ export class MonitorStore {
       fs.fsyncSync(fd);
     } finally { fs.closeSync(fd); }
     fs.renameSync(temporary, destination);
-    const directoryFd = fs.openSync(this.directory, 'r');
-    try { fs.fsyncSync(directoryFd); } finally { fs.closeSync(directoryFd); }
+    // Windows does not support flushing directory handles.
+    if (process.platform !== 'win32') {
+      const directoryFd = fs.openSync(this.directory, 'r');
+      try { fs.fsyncSync(directoryFd); } finally { fs.closeSync(directoryFd); }
+    }
   }
 
   save() { this.writeJson('state.json', this.data); }

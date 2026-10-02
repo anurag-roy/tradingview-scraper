@@ -2,8 +2,47 @@
 
 Read instrument/timeframe configuration from Google Sheets and fetch native
 open, high, low, close, volume and the actual **LuxAlgo Volume Delta Candles**
-POC from TradingView. Signal conditions and Telegram remain for the next phase.
-Without sheet configuration, the local default is FX:XAUUSD on 15m, 30m and 1h.
+POC from TradingView, monitor closed-candle signals and send Telegram alerts.
+For snapshot/watch without a sheet, the default is FX:XAUUSD on 15m, 30m and 1h.
+
+## Signal monitor
+
+Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to `.env`. Start a conversation
+with the bot first, or add it to the destination group/channel with permission
+to send messages. Then run:
+
+```sh
+npm start                                 # Continuous monitoring from your Sheet
+npm run preview                           # Print alerts without sending them
+npm run preview -- --inspect --seconds 40  # Inspect today's data outside hours too
+```
+
+The monitor requires the Google Sheet and saved TradingView login. It runs
+daily from **03:30 to 14:00 IST by default**, waiting between sessions. It evaluates only
+fully closed candles inside that window using the agreed green/red, POC and
+volume rules. Example message: `GOLD : Buy : 15m : 2 : 432.5`.
+
+Configure the window in `.env` using 24-hour IST times. For a full calendar day:
+
+```dotenv
+DAY_OPEN_TIME=00:00
+DAY_END_TIME=24:00
+```
+
+`24:00` means midnight at the end of the day; `23:59` would exclude candles
+ending at midnight. Omitted/blank values default to `03:30` and `14:00`.
+End must be later than open in the same IST day; overnight windows are not
+supported. Restart the monitor after changing these settings.
+
+Startup/reconnect recovers today's history but evaluates **only the latest
+closed candle**, then future closes. It never searches backward for an older
+qualifying signal. Each signal gets one Telegram request, with no retries.
+Persistent state prevents repeat attempts across restarts. Later candle
+revisions are logged without correction messages.
+
+See [the full signal rules and operating details](docs/signal-monitor.md),
+including cutoff behavior, local delivery logs, and crash recovery.
+Stop with Ctrl+C. Restart to apply Sheet or `.env` edits.
 
 ## Google Sheet configuration
 
@@ -150,7 +189,7 @@ by the FXCM feed.
 For direct study output, `signalEligible=true` requires a finite POC and OHLCV,
 a later native candle, and study data advancing past the candle's end. A forming
 POC is marked `provisional`; it can change. Later changes to an emitted closed
-candle are recorded as `closed_candle_revision`. No alerts are sent in this PoC.
+candle are recorded as `closed_candle_revision`. Snapshot/watch send no alerts.
 
 With `--no-study`, POC is calculated locally from LuxAlgo's default one-minute
 logic. That mode additionally requires complete minute coverage and agreement
@@ -164,8 +203,14 @@ example config rows and returned direct POC for all 620 requested native rows:
 FX:XAUUSD at 5m/15m/30m and FX:EURUSD at 1m/3m/5m. All subscriptions were ready
 in 2.02 seconds after authentication, with no errors. No test suite was added.
 
-The actual Google Sheet read still needs a sheet ID and service-account
-credentials in this workspace before it can be verified end to end.
+The user's actual Sheet and service account were verified on 1 October 2026.
+All six FXCM symbols at 15m/30m/1h returned OHLCV and direct LuxAlgo POC.
+The signal-monitor preview subsequently recovered all 438 candles wholly
+inside 03:30–14:00 IST across those 18 streams, with finite POC on every row;
+all streams were ready in 3.8 seconds. An outside-hours preview sent no messages
+and recorded no signal evaluations. Telegram delivery and live boundary timing
+remain unverified until bot credentials are configured and an in-session run
+observes a new qualifying close. No automated tests were added or run.
 
 ## Completed PoC evidence
 

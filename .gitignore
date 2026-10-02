@@ -5,6 +5,7 @@ node_modules/
 .scratch/
 output/
 .auth/
+.state/
 google-service-account*.json
 service-account*.json
 credentials*.json

@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "TradingView OHLCV and LuxAlgo Volume Delta Candles data feasibility probe",
+  "description": "TradingView OHLCV and LuxAlgo POC signal monitor with Google Sheets configuration and Telegram alerts",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
+    "start": "node --env-file-if-exists=.env src/monitor-cli.js",
+    "preview": "node --env-file-if-exists=.env src/monitor-cli.js --dry-run",
     "snapshot": "node --env-file-if-exists=.env src/cli.js --seconds 15",
     "watch": "node --env-file-if-exists=.env src/cli.js --seconds 600",
     "login": "node --env-file-if-exists=.env src/login.js",

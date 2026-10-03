@@ -1,11 +1,13 @@
 import { parseArgs } from 'node:util';
 import path from 'node:path';
+import fs from 'node:fs';
 import { createConfigReader } from './sheets.js';
 import { subscriptionsFor } from './config.js';
 import { createTelegram } from './telegram.js';
 import { MonitorStore } from './monitor-store.js';
 import { monitor } from './signal-monitor.js';
 import { readSessionHours } from './session.js';
+import { readHealthSettings } from './session-health.js';
 
 let store;
 try {
@@ -20,14 +22,19 @@ try {
     throw new Error('--seconds must be 5..86400, or omit it to keep monitoring.');
   }
   const hours = readSessionHours();
+  const healthSettings = readHealthSettings();
   const send = values['dry-run'] ? null : createTelegram();
   const config = await (await createConfigReader()).read();
   for (const warning of config.warnings) console.log(warning);
   const subscriptions = subscriptionsFor(config.instruments);
   if (!subscriptions.length) throw new Error('No active Sheet instruments/timeframes.');
-  store = new MonitorStore(path.resolve(values['dry-run'] ? '.state/preview' : '.state/live'));
+  // Foreground commands on the VPS must share the service's live lock too.
+  const runtimeLock = '/run/tradingview-monitor';
+  const lockDirectory = values['dry-run'] ? undefined : process.env.MONITOR_LOCK_DIRECTORY ||
+    (fs.existsSync(runtimeLock) ? runtimeLock : undefined);
+  store = new MonitorStore(path.resolve(values['dry-run'] ? '.state/preview' : '.state/live'), lockDirectory);
   console.log(`${values['dry-run'] ? 'Preview (no Telegram messages)' : 'Telegram monitor'}: ${subscriptions.length} streams | ${hours.label} | state ${store.directory}`);
-  await monitor({ subscriptions, store, send, hours, dryRun: values['dry-run'], inspect: values.inspect, seconds });
+  await monitor({ subscriptions, store, send, hours, healthSettings, dryRun: values['dry-run'], inspect: values.inspect, seconds });
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

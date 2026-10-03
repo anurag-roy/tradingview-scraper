@@ -1,0 +1,24 @@
+[Unit]
+Description=Private TradingView login page
+Wants=network-online.target
+After=network-online.target tailscaled.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=tradingview
+Group=tradingview
+WorkingDirectory=/opt/tradingview-scraper
+ExecStart=/usr/local/bin/node --env-file-if-exists=.env src/login-server.js
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=40
+KillMode=control-group
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+# Chrome uses its own sandbox; do not add NoNewPrivileges or a root user here.
+
+[Install]
+WantedBy=multi-user.target

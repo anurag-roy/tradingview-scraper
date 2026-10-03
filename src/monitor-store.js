@@ -2,10 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export class MonitorStore {
-  constructor(directory) {
+  constructor(directory, lockDirectory = directory) {
     this.directory = directory;
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-    this.lock = path.join(directory, 'monitor.lock');
+    fs.mkdirSync(lockDirectory, { recursive: true, mode: 0o700 });
+    this.lock = path.join(lockDirectory, 'monitor.lock');
+    const legacyLock = path.join(directory, 'monitor.lock');
+    if (this.lock !== legacyLock && fs.existsSync(legacyLock)) {
+      throw new Error(`Local monitor lock exists at ${legacyLock}. Stop that monitor, or inspect its PID before removing a stale lock.`);
+    }
     try {
       this.lockFd = fs.openSync(this.lock, 'wx', 0o600);
     } catch (error) {

@@ -2,8 +2,9 @@ import { fork } from 'node:child_process';
 import { candleSignature, evaluateSignal, formatSignal } from './signals.js';
 import { sessionAt, canDeliver, CLOSE_GRACE_MS } from './session.js';
 import { DeliveryQueue } from './delivery-queue.js';
+import { SessionHealth } from './session-health.js';
 
-export async function monitor({ subscriptions, store, send, hours, dryRun, inspect, seconds }) {
+export async function monitor({ subscriptions, store, send, hours, healthSettings, dryRun, inspect, seconds }) {
   let child = null;
   let stopping = false;
   let nextConnect = 0;
@@ -14,6 +15,9 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
   let recovered = new Set();
   let boundaryLive = new Set();
   const deliveries = new DeliveryQueue(fatal);
+  const health = new SessionHealth({ store, deliveries, send, dryRun, settings: healthSettings });
+  let collectorRevision;
+  let sourceError;
   let finish;
   const done = new Promise(resolve => { finish = resolve; });
   const log = (type, details) => store.log(type, details);
@@ -38,6 +42,7 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
   async function shutdown() {
     if (stopping) return;
     stopping = true;
+    health.close();
     clearInterval(tick); clearInterval(flush); clearTimeout(limit);
     process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt);
     const closingDeliveries = deliveries.close();
@@ -60,7 +65,7 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
     if (dryRun || !canDeliver(closeTime, Date.now(), activeSession, boundaryLive.has(key))) return;
     const session = activeSession;
     deliveries.enqueue(id, async () => {
-      if (stopping || record.status !== 'queued' || store.data.day !== session.day ||
+      if (stopping || !health.canCollect || record.status !== 'queued' || store.data.day !== session.day ||
         !canDeliver(closeTime, Date.now(), session, boundaryLive.has(key))) return false;
       // Reserve only when this request is about to start. A queued message
       // survives a restart without being mistaken for an attempted delivery.
@@ -77,6 +82,7 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
   }
 
   function accept(packet) {
+    if (!health.canCollect) return;
     const { key, symbol, timeframe, rows, latestClosedTime, pricescale } = packet;
     const now = Date.now();
     snapshots[key] = packet;
@@ -135,6 +141,7 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
   }
 
   function connect() {
+    collectorRevision = health.revision;
     recovered = new Set();
     boundaryLive = new Set();
     const collector = fork(new URL('./market-worker.js', import.meta.url), [], {
@@ -156,7 +163,11 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
         } else if (packet.type === 'error') {
           console.error(`${packet.scope}: ${packet.reason}`);
           log('source_error', packet);
-          if (packet.fatal) fatal(new Error('Collector stopped. Correct the configuration or refresh npm run login, then restart.'));
+          health.requestCheck();
+          if (packet.fatal) {
+            if (packet.reason.includes('Account does not support this timeframe')) fatal(new Error(packet.reason));
+            else sourceError = packet.reason;
+          }
         }
       } catch (error) { fatal(error); }
     });
@@ -181,6 +192,29 @@ export async function monitor({ subscriptions, store, send, hours, dryRun, inspe
     reconciling = true;
     try {
       const now = Date.now();
+      await health.poll(now);
+      if (stopping) return;
+      if (!health.canCollect) {
+        nextConnect = 0;
+        sourceError = null;
+        if (child) {
+          saveSnapshot();
+          deliveries.clear();
+          await stopChild();
+          health.notices();
+        }
+        return;
+      }
+      if (sourceError && health.state.status === 'healthy') {
+        fatal(new Error(`${sourceError}. Authentication is valid; check the Sheet/account permissions before restarting.`));
+        return;
+      }
+      if (child && collectorRevision !== health.revision) {
+        console.log('Saved TradingView session changed; reconnecting.');
+        saveSnapshot();
+        await stopChild();
+        nextConnect = 0;
+      }
       const session = sessionAt(now, hours);
       if (session.day !== activeSession?.day) {
         // A 24:00 cutoff belongs to the previous session. Keep its live stream

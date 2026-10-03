@@ -13,6 +13,7 @@
     "snapshot": "node --env-file-if-exists=.env src/cli.js --seconds 15",
     "watch": "node --env-file-if-exists=.env src/cli.js --seconds 600",
     "login": "node --env-file-if-exists=.env src/login.js",
+    "login:server": "node --env-file-if-exists=.env src/login-server.js",
     "config": "node --env-file-if-exists=.env src/read-config.js"
   },
   "dependencies": {

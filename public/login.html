@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{CSRF_TOKEN}}">
+  <title>TradingView login</title>
+  <link rel="stylesheet" href="/assets/login.css">
+  <script src="/assets/login.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><p class="eyebrow">SIGNAL MONITOR</p><h1>TradingView login</h1>
+      <p>Open the browser on your VPS and complete sign-in. Your session is saved there.</p></header>
+    <section class="card" aria-labelledby="monitor-heading">
+      <div class="row"><h2 id="monitor-heading">Monitor session</h2><span id="monitor-status" class="badge">Checking</span></div>
+      <p id="monitor-message">Loading monitor status…</p><p id="checked-at" class="muted"></p>
+    </section>
+    <section class="card" aria-labelledby="login-heading">
+      <div class="row"><h2 id="login-heading">Sign in</h2><span id="login-status" class="badge">Loading</span></div>
+      <p id="login-message" role="status" aria-live="polite">Loading browser status…</p>
+      <label class="option"><input id="fresh" type="checkbox"> Start a fresh TradingView sign-in</label>
+      <div class="actions"><button id="start" type="button" disabled>Start login</button><button id="stop" type="button" class="secondary" disabled>Close session</button></div>
+      <p id="error" class="error" role="alert"></p>
+      <p class="muted">Enter the VNC password when prompted. Submit the TradingView form and complete any CAPTCHA or 2FA yourself. The browser closes after the session is saved.</p>
+    </section>
+    <section id="desktop-section" hidden aria-labelledby="desktop-heading">
+      <div class="row desktop-heading"><h2 id="desktop-heading">VPS browser</h2><a id="desktop-link" target="_blank" rel="noopener noreferrer">Open full screen</a></div>
+      <p class="muted">On a phone, rotate to landscape. Use the noVNC sidebar’s keyboard button to type.</p>
+      <div id="desktop"></div>
+    </section>
+    <noscript>This page requires JavaScript to open and manage the login browser.</noscript>
+  </main>
+</body>
+</html>

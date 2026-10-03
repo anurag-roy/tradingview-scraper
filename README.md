@@ -47,6 +47,29 @@ See [the full signal rules and operating details](docs/signal-monitor.md),
 including cutoff behavior, local delivery logs, and crash recovery.
 Stop with Ctrl+C. Restart to apply Sheet or `.env` edits.
 
+## Ubuntu VPS and phone login
+
+See [SETUP.md](SETUP.md) for a new Ubuntu VPS: Node.js/Chrome installation,
+private Tailscale HTTPS access, Android login, Google Sheets/Telegram setup,
+and both systemd services.
+
+`npm run login:server` serves the private login page. It requires
+`LOGIN_PUBLIC_URL`, `LOGIN_ALLOWED_EMAIL`, and the Linux display packages.
+The owner can start or cancel an on-demand Chrome session from the page;
+the monitor detects the saved login automatically. For the page on your local
+computer only, use `npm run login:server -- --local` and open
+`http://127.0.0.1:6080`. Never expose local mode through a public/private proxy.
+
+The monitor checks authentication every ten minutes by default
+(`SESSION_CHECK_INTERVAL_SECONDS`). Confirmed login loss pauses collection
+and attempts one Telegram notification per incident, surviving restarts without
+repeat attempts. Authentication is rechecked after 30 seconds while paused;
+a newly saved session is detected within five seconds plus request time.
+A restored login reconnects automatically and produces one restoration notice.
+Network/403/429/server failures are distinguished from rejected login and do
+not produce expiry alerts by themselves. Telegram notification outcomes and
+session health are private in `.state/live/session-health.json`.
+
 ## Google Sheet configuration
 
 Use the same `config!A1:E8` layout as the original GoCharting scraper:

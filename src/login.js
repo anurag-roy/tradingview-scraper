@@ -9,7 +9,7 @@ import { createConfigReader, hasSheetConfig } from './sheets.js';
 process.umask(0o077);
 let browser;
 let cancelled = false;
-const cancel = () => { cancelled = true; };
+const cancel = () => { cancelled = true; void browser?.close().catch(() => {}); };
 process.once('SIGINT', cancel);
 process.once('SIGTERM', cancel);
 
@@ -32,7 +32,7 @@ try {
   await prepareAuthDirectory();
   const browserEnv = { ...process.env };
   for (const key of Object.keys(browserEnv)) {
-    if (key.startsWith('TRADINGVIEW_') || key.startsWith('GOOGLE_')) delete browserEnv[key];
+    if (/^(TRADINGVIEW_|GOOGLE_|TELEGRAM_|LOGIN_)/.test(key)) delete browserEnv[key];
   }
   browser = await puppeteer.launch({
     headless: false, defaultViewport: null,
@@ -111,7 +111,7 @@ try {
   }
   if (!saved) throw new Error(cancelled ? 'Login cancelled.' : 'Login ended without a verified session. Run npm run login to continue.');
 } catch (error) {
-  console.error(error.message);
+  console.error(cancelled ? 'Login cancelled.' : error.message);
   process.exitCode = 1;
 } finally {
   process.off('SIGINT', cancel);

@@ -1,0 +1,28 @@
+[Unit]
+Description=TradingView signal monitor
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=tradingview
+Group=tradingview
+WorkingDirectory=/opt/tradingview-scraper
+RuntimeDirectory=tradingview-monitor
+RuntimeDirectoryMode=0700
+Environment=MONITOR_LOCK_DIRECTORY=/run/tradingview-monitor
+ExecStart=/usr/local/bin/node --env-file-if-exists=.env src/monitor-cli.js
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=40
+KillMode=control-group
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

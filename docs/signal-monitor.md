@@ -120,8 +120,34 @@ running. An unreadable state file stops startup rather than resetting deduplicat
 Transport failures reconnect with 5–60 second backoff. No traffic for 90 seconds,
 a study lagging native closes for 90 seconds, or incomplete startup history
 after two minutes causes reconnection. Authentication and explicit chart/study
-errors stop with a message for operator attention. Refresh expired TradingView
-cookies with `npm run login`. Google Sheet and `.env` settings are read once;
+errors stop with a message for operator attention when authentication is valid.
+Missing or rejected authentication now pauses collection and unstarted signal
+delivery while the parent stays running. A server-side quote token must identify
+an authenticated account; JWT syntax alone does not validate login. HTTP 401 or
+an explicitly anonymous token requires login; generic 403, 429, 5xx, network and
+unexpected-response errors cause a recheck after 30 seconds. A healthy stream
+can continue through a temporary authentication-probe failure. Authentication
+is also checked at startup, after collector errors, and every ten minutes by
+default (`SESSION_CHECK_INTERVAL_SECONDS`, range 30–3600 seconds).
+
+The current window's catch-up policy applies after login recovery as well.
+Refresh cookies with `npm run login`, or use the private VPS page described in
+[SETUP.md](../SETUP.md). New saved session files are noticed within five seconds
+plus request time and reconnect the collector automatically. The monitor attempts
+one Telegram login-required notice per incident and one login-restored notice
+after authentication succeeds. Restoration does not guarantee chart/study loading
+has already completed. These notices share the paced delivery queue but can
+send outside trading hours. Their attempt reservations and outcomes live in
+`session-health.json`, independently of daily candle-state rotation; attempted
+or uncertain notices are never retried. Preview prints notices without sending.
+
+The supplied systemd monitor service puts its process lock in a private runtime
+directory recreated across restarts/reboots, while retaining all candle and
+notification records in `.state/live`. Foreground live commands also use the
+service's runtime directory when present; elsewhere they retain the usual
+state-directory lock unless `MONITOR_LOCK_DIRECTORY` is configured.
+
+Google Sheet and `.env` settings are read once;
 restart after editing them. A collector child process owns the single shared
 WebSocket so a stuck dependency connection can be stopped completely before
 replacement. Telegram requests stay in the parent process.

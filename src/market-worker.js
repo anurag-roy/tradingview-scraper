@@ -15,8 +15,8 @@ function stop(code = 0) {
   if (client) void client.end();
   else process.exit(code);
 }
-function fail(scope, reason, fatal = false) {
-  publish({ type: 'error', scope, reason, fatal });
+function fail(scope, reason, fatal = false, authCode = null) {
+  publish({ type: 'error', scope, reason, fatal, authCode });
   stop(1);
 }
 process.on('SIGTERM', () => stop());
@@ -29,7 +29,7 @@ process.once('message', async ({ subscriptions, session }) => {
   const started = Date.now();
   let auth;
   try { auth = await authenticate('session'); }
-  catch (error) { fail('authentication', error.message, true); return; }
+  catch (error) { fail('authentication', error.message, false, error.code); return; }
   let indicator;
   try {
     indicator = await TradingView.getIndicator('PUB;b1702429dc1f4ab0a2cbdf51fd796448', '1.0',

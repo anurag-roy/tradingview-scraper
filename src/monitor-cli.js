@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import path from 'node:path';
 import fs from 'node:fs';
-import { createConfigReader } from './sheets.js';
+import { createConfigReader, createSignalWriter } from './sheets.js';
 import { subscriptionsFor } from './config.js';
 import { createTelegram } from './telegram.js';
 import { MonitorStore } from './monitor-store.js';
@@ -24,6 +24,7 @@ try {
   const hours = readSessionHours();
   const healthSettings = readHealthSettings();
   const send = values['dry-run'] ? null : createTelegram();
+  const sheet = values['dry-run'] ? null : await createSignalWriter();
   const config = await (await createConfigReader()).read();
   for (const warning of config.warnings) console.log(warning);
   const subscriptions = subscriptionsFor(config.instruments);
@@ -33,8 +34,8 @@ try {
   const lockDirectory = values['dry-run'] ? undefined : process.env.MONITOR_LOCK_DIRECTORY ||
     (fs.existsSync(runtimeLock) ? runtimeLock : undefined);
   store = new MonitorStore(path.resolve(values['dry-run'] ? '.state/preview' : '.state/live'), lockDirectory);
-  console.log(`${values['dry-run'] ? 'Preview (no Telegram messages)' : 'Telegram monitor'}: ${subscriptions.length} streams | ${hours.label} | state ${store.directory}`);
-  await monitor({ subscriptions, store, send, hours, healthSettings, dryRun: values['dry-run'], inspect: values.inspect, seconds });
+  console.log(`${values['dry-run'] ? 'Preview (no Telegram messages or Sheet writes)' : 'Telegram + Sheet monitor'}: ${subscriptions.length} streams | ${hours.label} | state ${store.directory}`);
+  await monitor({ subscriptions, store, send, sheet, hours, healthSettings, dryRun: values['dry-run'], inspect: values.inspect, seconds });
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

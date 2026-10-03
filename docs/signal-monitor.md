@@ -2,12 +2,15 @@
 
 ## Session and candle confirmation
 
-- Every calendar day in Asia/Kolkata (IST). `.env` settings `DAY_OPEN_TIME`
-  and `DAY_END_TIME` default to `03:30` and `14:00`. Use 24-hour `HH:mm`;
+- Every trading day in Asia/Kolkata (IST). `.env` settings `DAY_OPEN_TIME`
+  and `DAY_END_TIME` default to `03:30` and `02:00`: 03:30 AM through
+  02:00 AM the next morning. Use 24-hour `HH:mm`;
   `24:00` is allowed only as the end. Full day: `00:00`–`24:00`, not `23:59`.
-  End must be later than open; overnight windows are rejected. Restart to apply.
+  End earlier than open crosses midnight; equal open/end is rejected.
+  The session uses its opening date, and resets at the next opening rather
+  than midnight. The 02:00–03:30 break retains the just-ended session. Restart to apply.
 - A candle's native opening timestamp and nominal end must both fit inside
-  that window. With the default hours, the 13:30–14:30 hourly candle is excluded; the 13:45–14:00
+  that window. With the default hours, the 01:30–02:30 hourly candle is excluded; the 01:45–02:00
   fifteen-minute candle is included. Candles are never rebucketed.
 - A later native candle and a LuxAlgo study timestamp at or beyond the candle's
   end confirm closure. OHLCV and POC must be finite. The actual Pine study
@@ -15,7 +18,7 @@
 - A candle closing exactly at the configured end can finish arriving for up
   to 60 seconds afterward, only on a stream that finished recovery before the
   cutoff. Starting or reconnecting after the cutoff never produces catch-up alerts.
-  With a `24:00` end, the previous session keeps this grace at midnight before
+  If the next session starts at the cutoff, the previous session keeps its grace before
   reconnecting for the new day and recovering its history. Outstanding Telegram
   requests settle before the previous day's state is rotated.
 - Each new session resets volume history. The first candle cannot signal.
@@ -90,15 +93,41 @@ queued request: backlog messages cannot start after the cutoff. Only normal
 closing-boundary messages have the existing 60-second grace. Unsent queues
 from an earlier day are discarded when the daily state rotates.
 
+After Telegram confirms `sent`, the monitor appends the same saved message
+text to the next row in `data!A:A` in the configured spreadsheet. One signal
+occupies one cell, using `RAW` input to preserve its text. The `data` tab must
+exist, and the service account must have **Editor** access. Only signal messages
+are written; login-required and login-restored notices remain in Telegram.
+The Sheet outcome is stored separately in the candle record's `sheet` field
+and logged as `sheet_result`: `written` with the updated range, `failed` for
+a known rejection, or `uncertain` for an ambiguous response or network failure.
+Each append has a 20-second timeout and no automatic retry. Sheet failures
+leave the Telegram result intact and allow the queue to continue. Preview
+makes no Sheet writes, and earlier Telegram sends are not automatically backfilled.
+
+At startup and each session opening, column A is compacted to retain only
+messages whose candle time falls inside the current trading session. With
+the defaults, messages from 00:00–02:00 AM belong to the previous opening
+date and stay until 03:30 AM. Older and undated entries are removed. Retained
+message strings are unchanged; cleanup updates only column A's cell values,
+preserving other columns, the config tab, and cell formatting.
+Cleanup shares the delivery queue so it cannot overwrite a concurrent append,
+and runs even when TradingView login is unavailable. Failed cleanup is retried
+at most once per minute. Until cleanup succeeds, Telegram continues but Sheet
+appends are recorded as `skipped` with `session-cleanup-not-confirmed`; those
+signals are not backfilled. Cleanup outcomes are logged as `sheet_cleanup`.
+
 A crash can leave `attempting`, treated as uncertain and never resent. This
 prevents duplicate attempts but can lose a message if the process crashes
-after saving the reservation and before making the HTTP request. Keep state
+after saving the reservation and before making the HTTP request. A crash
+between the Telegram send and the Sheet append can also leave an unlogged
+signal; interrupted Sheet writes are not replayed. Keep state
 across restarts. These alerts are for human reading; there is no trade execution.
 
 ## Commands and state
 
 `npm start` runs indefinitely. `npm run preview` uses identical conditions but
-prints messages without contacting Telegram. Either accepts `--seconds N`
+prints messages without contacting Telegram or writing to Sheets. Either accepts `--seconds N`
 (5–86400) for a bounded run. Preview also accepts `--inspect` to fetch current
 session history outside monitoring hours; it still does not evaluate past
 signals outside the window. The original snapshot/watch commands remain
@@ -106,13 +135,13 @@ independent diagnostics and never send messages.
 
 State is private and ignored by Git:
 
-- `.state/live/state.json`: today's evaluated candles and delivery outcomes.
+- `.state/live/state.json`: today's evaluated candles and Telegram/Sheet outcomes.
 - `.state/live/events.jsonl`: decisions, revisions, reconnects and delivery results.
 - `.state/live/candles.json`: latest view of today's session candles, saved every
   five seconds and at shutdown. This includes forming rows marked unconfirmed.
 - `.state/preview/`: separate dry-run state that cannot suppress live alerts.
 
-Files rotate at the next IST calendar day. Only one process can use each state
+Files rotate at the next trading-session opening. Only one process can use each state
 directory. Normal shutdown removes `monitor.lock`; after a hard crash, inspect
 the PID in that file and remove the lock only if that process is no longer
 running. An unreadable state file stops startup rather than resetting deduplication.

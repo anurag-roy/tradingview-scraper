@@ -17,6 +17,7 @@ flowchart LR
     Chrome --> Cookies[Saved session]
     Cookies --> Monitor[Signal monitor]
     Monitor --> Telegram[Telegram notifications]
+    Monitor --> Sheets[Google Sheet data column A]
 ```
 
 ## 1. Prepare the server
@@ -143,7 +144,9 @@ is separate from TradingView authentication.
 
 In your Google Cloud project, enable the Google Sheets API, create a service
 account and download its JSON key. Share your configuration spreadsheet with
-that service account as **Viewer**. The app only reads `config!A1:E8`; see
+that service account as **Editor**, and create a tab named `data`. The app
+reads `config!A1:E8` and appends each successfully sent Telegram signal message
+to column A of `data`; see
 [README.md](README.md#google-sheet-configuration) for the six instrument slots
 and timeframe columns. The email/password rows can stay blank; you can type
 your TradingView credentials in the remote Chrome window.
@@ -176,8 +179,8 @@ GOOGLE_SERVICE_ACCOUNT_JSON=./.auth/google-service-account.json
 CONFIG_TAB=config
 TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN
 TELEGRAM_CHAT_ID=YOUR_CHAT_ID
-DAY_OPEN_TIME=00:00
-DAY_END_TIME=24:00
+DAY_OPEN_TIME=03:30
+DAY_END_TIME=02:00
 SESSION_CHECK_INTERVAL_SECONDS=600
 LOGIN_PUBLIC_URL=https://your-vps.your-network.ts.net
 LOGIN_ALLOWED_EMAIL=your-tailscale-sign-in-email@example.com
@@ -193,8 +196,10 @@ Leave `TRADINGVIEW_SESSION` and `TRADINGVIEW_SESSION_SIGN` blank: `.env` session
 overrides would prevent the monitor from using refreshed browser cookies.
 TradingView username/password are optional; manual entry is supported.
 
-`00:00`–`24:00` monitors a full IST day. To use the original trading window,
-set `03:30`–`14:00`. Overnight windows are not supported. Restart the monitor
+`03:30`–`02:00` monitors from 03:30 AM IST through 02:00 AM the next day.
+The trading day and Sheet notifications reset at the next 03:30 AM opening,
+preserving after-midnight messages with the session that started them.
+`00:00`–`24:00` is also supported for a full calendar day. Restart the monitor
 after changing the spreadsheet or `.env`.
 
 To find your chat ID, send a message to the bot first, then run this **read-only**
@@ -304,7 +309,12 @@ while the systemd service is running. Confirm actual Telegram receipt: a first
 login incident should produce a login-required message followed by a
 login-restored message, and qualifying candles should produce signal messages.
 The app records one attempt for each notification; it does not retry failed
-or uncertain Telegram deliveries.
+or uncertain Telegram deliveries. Confirm that each sent signal also appears
+verbatim in column A of `data`. Sheet-write outcomes are recorded separately
+in the candle's `sheet` field and in `sheet_result` events. Failed or uncertain
+Sheet writes are not retried and do not stop later Telegram alerts.
+Older-session and undated messages are removed from column A at startup and
+each 03:30 AM rollover. Existing current-session messages are preserved.
 
 ## Session expiry and recovery
 
@@ -359,7 +369,10 @@ sudo systemctl restart tradingview-login.service tradingview-monitor.service
   the [Puppeteer troubleshooting guide](https://pptr.dev/troubleshooting). Keep
   the sandbox and AppArmor enabled; do not work around this with root Chrome.
 - **Google 403:** enable the Sheets API and share the sheet with the service
-  account as Viewer. Check the JSON path and permissions.
+  account as Editor for signal logging. Check the JSON path and permissions.
+- **Telegram signal missing from the Sheet:** confirm the `data` tab exists,
+  column A is writable, and the service account has Editor access. Inspect
+  `sheet_result` events and the candle record's `sheet` outcome.
 - **Session valid but collector stops:** check timeframe entitlement, symbol
   identifiers and chart/study errors. These are distinct from expired login.
 - **No Telegram message:** check bot permissions and `.state/live/session-health.json`

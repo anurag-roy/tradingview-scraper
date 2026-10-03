@@ -4,12 +4,14 @@ import { sessionAt, canDeliver, CLOSE_GRACE_MS } from './session.js';
 import { DeliveryQueue } from './delivery-queue.js';
 import { SessionHealth } from './session-health.js';
 
-export async function monitor({ subscriptions, store, send, hours, healthSettings, dryRun, inspect, seconds }) {
+export async function monitor({ subscriptions, store, send, sheet, hours, healthSettings, dryRun, inspect, seconds }) {
   let child = null;
   let stopping = false;
   let nextConnect = 0;
   let failures = 0;
   let activeSession;
+  let sheetDay;
+  let nextSheetCleanup = 0;
   let snapshots = {};
   let dirty = false;
   let recovered = new Set();
@@ -61,6 +63,21 @@ export async function monitor({ subscriptions, store, send, hours, healthSetting
     void shutdown();
   }
 
+  function queueSheetCleanup(session, now) {
+    if (dryRun || sheetDay === session.day || now < nextSheetCleanup) return;
+    nextSheetCleanup = now + 60_000;
+    deliveries.enqueue(`sheet-cleanup:${session.day}`, async () => {
+      if (stopping || activeSession.day !== session.day) return false;
+      const outcome = await sheet.keepSession(session);
+      if (outcome.status === 'pruned') sheetDay = session.day;
+      nextSheetCleanup = Date.now() + 60_000;
+      log('sheet_cleanup', { day: session.day, ...outcome });
+      console.log(`Sheet cleanup ${outcome.status}: ${session.day}${outcome.status === 'pruned'
+        ? ` | removed ${outcome.removed}, kept ${outcome.kept}` : outcome.hint ? ` | ${outcome.hint}` : ''}`);
+      return false;
+    });
+  }
+
   function queueDelivery(id, key, record, closeTime) {
     if (dryRun || !canDeliver(closeTime, Date.now(), activeSession, boundaryLive.has(key))) return;
     const session = activeSession;
@@ -77,6 +94,21 @@ export async function monitor({ subscriptions, store, send, hours, healthSetting
       store.save();
       log('telegram_result', { id, ...outcome });
       console.log(`Telegram ${outcome.status}: ${id}${outcome.errorCode ? ` (code ${outcome.errorCode})` : ''}`);
+      if (outcome.status === 'sent') {
+        let sheetOutcome;
+        if (sheetDay !== session.day) {
+          sheetOutcome = { status: 'skipped', reason: 'session-cleanup-not-confirmed' };
+          record.sheet = {};
+        } else {
+          record.sheet = { status: 'attempting', attemptedAt: new Date().toISOString() };
+          store.save();
+          sheetOutcome = await sheet.append(record.text);
+        }
+        Object.assign(record.sheet, sheetOutcome, { completedAt: new Date().toISOString() });
+        store.save();
+        log('sheet_result', { id, ...sheetOutcome });
+        console.log(`Sheet ${sheetOutcome.status}: ${id}${sheetOutcome.hint ? ` | ${sheetOutcome.hint}` : ''}`);
+      }
       return true;
     });
   }
@@ -192,6 +224,23 @@ export async function monitor({ subscriptions, store, send, hours, healthSetting
     reconciling = true;
     try {
       const now = Date.now();
+      const session = sessionAt(now, hours);
+      if (session.day !== activeSession?.day) {
+        // If the next session opens immediately at the previous cutoff, let
+        // that live stream finish its normal closing-boundary grace first.
+        if (child && activeSession && now <= activeSession.end + CLOSE_GRACE_MS) return;
+        deliveries.clear();
+        await stopChild();
+        await deliveries.active;
+        if (stopping) return;
+        activeSession = session;
+        store.useDay(session.day);
+        snapshots = {}; dirty = false;
+        sheetDay = null; nextSheetCleanup = 0;
+      }
+      // Cleanup shares the delivery queue so it cannot race a signal append.
+      // It also runs while TradingView is waiting for login or market open.
+      queueSheetCleanup(session, now);
       await health.poll(now);
       if (stopping) return;
       if (!health.canCollect) {
@@ -214,19 +263,6 @@ export async function monitor({ subscriptions, store, send, hours, healthSetting
         saveSnapshot();
         await stopChild();
         nextConnect = 0;
-      }
-      const session = sessionAt(now, hours);
-      if (session.day !== activeSession?.day) {
-        // A 24:00 cutoff belongs to the previous session. Keep its live stream
-        // for the normal close grace before rotating state to the new day.
-        if (child && activeSession && now <= activeSession.end + CLOSE_GRACE_MS) return;
-        deliveries.clear();
-        await stopChild();
-        await deliveries.active;
-        if (stopping) return;
-        activeSession = session;
-        store.useDay(session.day);
-        snapshots = {}; dirty = false;
       }
       const active = now >= session.start && now < session.end;
       const draining = child && now >= session.end && now <= session.end + CLOSE_GRACE_MS;

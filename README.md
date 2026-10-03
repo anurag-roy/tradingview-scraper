@@ -2,7 +2,8 @@
 
 Read instrument/timeframe configuration from Google Sheets and fetch native
 open, high, low, close, volume and the actual **LuxAlgo Volume Delta Candles**
-POC from TradingView, monitor closed-candle signals and send Telegram alerts.
+POC from TradingView, monitor closed-candle signals and send Telegram alerts,
+with each successfully sent signal appended to column A of the `data` tab.
 For snapshot/watch without a sheet, the default is FX:XAUUSD on 15m, 30m and 1h.
 
 ## Signal monitor
@@ -13,32 +14,44 @@ to send messages. Then run:
 
 ```sh
 npm start                                 # Continuous monitoring from your Sheet
-npm run preview                           # Print alerts without sending them
+npm run preview                           # Print alerts without sending or writing them
 npm run preview -- --inspect --seconds 40  # Inspect today's data outside hours too
 ```
 
 The monitor requires the Google Sheet and saved TradingView login. It runs
-daily from **03:30 to 14:00 IST by default**, waiting between sessions. It evaluates only
+daily from **03:30 AM to 02:00 AM the next day, IST**, waiting between sessions. It evaluates only
 fully closed candles inside that window using the agreed green/red, POC and
 volume rules. Example message: `GOLD : Buy : 15m : 2 : 432.5 : 2026-10-02 09:30 IST`.
 The final field is the candle's opening date and time in IST.
 
-Configure the window in `.env` using 24-hour IST times. For a full calendar day:
+Configure the window in `.env` using 24-hour IST times:
 
 ```dotenv
-DAY_OPEN_TIME=00:00
-DAY_END_TIME=24:00
+DAY_OPEN_TIME=03:30
+DAY_END_TIME=02:00
 ```
 
-`24:00` means midnight at the end of the day; `23:59` would exclude candles
-ending at midnight. Omitted/blank values default to `03:30` and `14:00`.
-End must be later than open in the same IST day; overnight windows are not
-supported. Restart the monitor after changing these settings.
+An end earlier than open means the next day. The trading day is named for
+its opening date and changes at 03:30 AM, so midnight does not reset alerts
+or volume history. The 02:00–03:30 AM break belongs to the session that just
+ended. Omitted/blank values default to `03:30` and `02:00`. For a full calendar
+day, use `00:00`–`24:00`; `24:00` includes candles ending at midnight.
+Restart the monitor after changing these settings.
 
 Startup/reconnect during monitoring hours evaluates **all unprocessed closed
 candles since today's configured opening time**, then future closes. Each
 qualifying candle gets its own Telegram message, including its candle time.
 Messages are queued individually with at least 3.1 seconds between requests.
+After Telegram confirms a signal was sent, its exact message is appended as
+one plain-text cell in `data!A:A` in the same spreadsheet. Create the `data`
+tab and give the service account **Editor** access. Sheet-write outcomes are
+logged separately; a failed write does not stop later Telegram alerts. Sheet
+writes are attempted once, with no automatic retry or backfill of earlier sends.
+Column A retains only the current trading session. At startup and each new
+session opening, older messages are removed and current-session text is kept.
+Notifications after midnight through 02:00 AM stay until the next 03:30 AM
+opening. Undated legacy entries are removed because their session cannot be
+identified. Cleanup leaves the `config` tab and other `data` columns intact.
 Persistent state prevents repeat attempts across restarts; queued messages
 that haven't been attempted resume on recovery. Failed or uncertain attempts
 are never retried. Later candle revisions are logged without correction messages.
@@ -99,8 +112,11 @@ CONFIG_TAB=config
 ```
 
 Enable the Google Sheets API in the service account's Cloud project, and share
-the spreadsheet with that account as **Viewer**. The reader only requests
-`spreadsheets.readonly` access. It does not create tabs or write candle data.
+the spreadsheet with that account as **Editor** for the signal monitor.
+Create a tab named `data`; the monitor appends Telegram signal messages only
+to its column A. Config reads still request `spreadsheets.readonly` access,
+and snapshot/watch/login/config commands can use **Viewer** access. The signal
+writer requests `spreadsheets` access. No tabs are created automatically.
 As in the original project, `GOOGLE_CLIENT_EMAIL` plus `GOOGLE_PRIVATE_KEY`
 can replace the JSON file; escaped `\n` newlines are supported. See
 [.env.example](.env.example) for all supported settings.

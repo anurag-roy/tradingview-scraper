@@ -120,9 +120,11 @@ point its DNS A record to the VPS and use `https://login.example.com` as the URL
 
 ```bash
 cd /opt/tradingview-scraper
+sudo apt install -y nginx apache2-utils snapd
 nano .env
 /usr/local/bin/npm run login:proxy -- --http-only
-sudo install -d -m 755 /var/www/tradingview-acme
+sudo install -d -m 755 /var/www/tradingview-acme \
+  /etc/nginx/sites-available /etc/nginx/sites-enabled
 sudo install -m 600 .auth/tradingview-login.nginx.conf /etc/nginx/sites-available/tradingview-login
 sudo ln -s /etc/nginx/sites-available/tradingview-login /etc/nginx/sites-enabled/tradingview-login
 sudo rm -f /etc/nginx/sites-enabled/default
@@ -133,6 +135,8 @@ sudo systemctl reload nginx
 
 These commands assume a new VPS without existing Nginx sites. On an existing
 server, retain its other sites and reuse the `tradingview-login` link if present.
+Step 4 installs its server packages again so it also works if step 1 was followed
+from an earlier guide. The site directories are created before copying the file.
 The HTTP-only configuration serves ACME challenges; it does not expose the app.
 The helper generates a random private proxy token in `.env` and a private
 configuration in `.auth/`. It reuses the token on later runs and prints neither
@@ -194,9 +198,11 @@ reloads it after renewal so the new certificate takes effect. Confirm the
 renewal check succeeds and the timer is scheduled. Once the app starts in
 step 7, open the HTTPS URL from your phone and verify that it requires the
 portal password. Nginx protects all page, API, and desktop requests, including
-WebSocket upgrades, and limits request rates. The app verifies the private
-proxy token and the authenticated username supplied by Nginx; its origin and
-CSRF checks remain enabled. Never run the public service with `--local`.
+WebSocket upgrades, and limits request rates. It serves the installed noVNC
+files directly from `/usr/share/novnc/` with their correct MIME types. Only the
+desktop WebSocket and app routes are forwarded to Node. The app verifies the
+private proxy token and the authenticated username supplied by Nginx; its origin
+and CSRF checks remain enabled. Never run the public service with `--local`.
 [Nginx password authentication](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html),
 [WebSocket proxying](https://nginx.org/en/docs/http/websocket.html),
 [Certbot renewal](https://eff-certbot.readthedocs.io/en/stable/using.html#renewing-certificates).
@@ -439,9 +445,25 @@ sudo systemctl restart tradingview-login.service tradingview-monitor.service
 - **Start login fails:** check `.auth/vnc.passwd`, installed display packages,
   ownership, and `.auth/remote-login.log`. That private file is overwritten for
   each session. Missing display dependencies do not affect the monitor.
+- **Could not find Chrome:** the setup skips Puppeteer's bundled browser download.
+  Run `/usr/bin/google-chrome-stable --version` to confirm the system installation,
+  set `PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable` in `.env`, and
+  restart `tradingview-login.service`. Refresh the portal after restarting it.
+  If the executable is missing, complete the Chrome installation in step 2.
+  The resulting desktop shutdown can produce noVNC asset `409` responses and
+  stylesheet MIME errors; the Chrome failure in the private log is the cause.
 - **Black screen / disconnected display:** inspect the private login log and
   service journal. The display also disconnects normally after successful login
   or the timeout. Start a new session rather than trying to reuse a closed one.
+- **noVNC stays on Loading, with JavaScript modules returning 503:** noVNC cannot
+  start its WebSocket until its module tree loads. Confirm the installed Nginx
+  configuration contains the `/desktop/` static alias and the exact
+  `/desktop/websockify` proxy location. Regenerate/install the configuration
+  with `npm run login:proxy` (without `--http-only`) using the HTTPS configuration
+  commands in step 4, check `nginx -t`, and reload Nginx.
+  Start a new session and hard-refresh the portal. JavaScript modules should
+  return 200 with a JavaScript MIME type; static files require the portal password
+  even while Chrome is closed. A missing packaged asset now returns 404 directly.
 - **Chrome sandbox error:** confirm Chrome is installed at the configured path
   and the login service runs as `ubuntu`. Inspect Ubuntu AppArmor logs and
   the [Puppeteer troubleshooting guide](https://pptr.dev/troubleshooting). Keep

@@ -70,7 +70,7 @@ export class SessionHealth {
     if (!incident) return;
     if (this.state.status === 'login-required') {
       this.queueNotice('loginNotice', 'TradingView login required. Signal monitoring is paused.' +
-        (this.settings.loginUrl ? `\nEnable Tailscale and open ${this.settings.loginUrl}` : '\nRun npm run login on the scraper computer.'));
+        (this.settings.loginUrl ? `\nOpen ${this.settings.loginUrl} and enter your portal username and password.` : '\nRun npm run login on the scraper computer.'));
     } else if (this.state.status === 'healthy' && incident.recoveredAt) {
       this.queueNotice('recoveryNotice', 'TradingView login restored. The monitor will reconnect automatically during its configured monitoring hours.');
     }

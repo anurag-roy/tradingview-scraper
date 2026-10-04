@@ -63,11 +63,17 @@ Stop with Ctrl+C. Restart to apply Sheet or `.env` edits.
 ## Ubuntu VPS and phone login
 
 See [SETUP.md](SETUP.md) for a new Ubuntu VPS: Node.js/Chrome installation,
-private Tailscale HTTPS access, Android login, Google Sheets/Telegram setup,
+password-protected public HTTPS access, Android login, Google Sheets/Telegram setup,
 and both systemd services.
 
-`npm run login:server` serves the private login page. It requires
-`LOGIN_PUBLIC_URL`, `LOGIN_ALLOWED_EMAIL`, and the Linux display packages.
+`npm run login:server` serves the login page on localhost behind Nginx.
+Set `LOGIN_PUBLIC_URL` to your public IP or domain's HTTPS origin, then use
+`npm run login:proxy` to generate `LOGIN_PROXY_TOKEN` and the Nginx configuration.
+Nginx checks the portal username/password for the page, API, and remote desktop;
+the app verifies Nginx's private token and retains origin/CSRF checks. Credentials
+are separate from TradingView and stored in Nginx's password file. The supplied
+configuration covers HTTPS, WebSocket forwarding, and request rate limiting.
+See the setup guide for certificate issuance/renewal and the Linux display packages.
 The owner can start or cancel an on-demand Chrome session from the page;
 the monitor detects the saved login automatically. For the page on your local
 computer only, use `npm run login:server -- --local` and open

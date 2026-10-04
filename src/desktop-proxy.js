@@ -3,7 +3,8 @@ import http from 'node:http';
 function headersFor(request, port) {
   const headers = { ...request.headers, host: `127.0.0.1:${port}` };
   for (const name of Object.keys(headers)) {
-    if (name.startsWith('tailscale-') || ['cookie', 'authorization', 'x-csrf-token'].includes(name)) delete headers[name];
+    if (name.startsWith('x-login-') || name.startsWith('x-forwarded-') ||
+      ['cookie', 'authorization', 'x-csrf-token'].includes(name)) delete headers[name];
   }
   return headers;
 }

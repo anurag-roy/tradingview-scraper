@@ -1,6 +1,6 @@
 # Ubuntu VPS setup
 
-This installs the monitor and a private TradingView login page on a new
+This installs the monitor and a password-protected TradingView login portal on a new
 **Ubuntu 24.04 LTS x86-64 VPS**. The commands use `/opt/tradingview-scraper`
 and your existing `ubuntu` user with sudo access. Start with 2 vCPUs and 4 GB RAM;
 watch actual usage after enabling your configured feeds and adjust if needed.
@@ -8,11 +8,13 @@ watch actual usage after enabling your configured feeds and adjust if needed.
 The monitor runs continuously under systemd. Chrome, a virtual display, and
 VNC start only when you press **Start login**. You can complete TradingView
 login from Android through noVNC, then the display closes automatically.
-Tailscale Serve provides private HTTPS access. No public domain is required.
+Nginx provides public HTTPS access and prompts for your portal username/password.
+You can use your VPS's public IPv4 address directly; a domain is optional.
 
 ```mermaid
 flowchart LR
-    Phone[Android browser] -->|Tailscale HTTPS| Page[Private login page]
+    Phone[Android browser] -->|HTTPS and portal password| Nginx[Nginx on VPS]
+    Nginx --> Page[Login page on localhost]
     Page -->|Start login| Chrome[Chrome on VPS virtual display]
     Chrome --> Cookies[Saved session]
     Cookies --> Monitor[Signal monitor]
@@ -30,15 +32,17 @@ up networking. If your SSH port differs from 22, adjust the firewall rule.
 ```bash
 sudo apt update
 sudo apt upgrade -y
-sudo apt install -y ca-certificates curl git xz-utils nano ufw \
+sudo apt install -y ca-certificates curl git xz-utils nano ufw nginx apache2-utils snapd \
   xvfb xauth x11vnc novnc websockify openbox fonts-liberation
 sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-Keep **6080, 6081, and 5901 closed** in UFW and your provider's firewall.
-The login page, desktop proxy, and VNC server bind only to localhost. Tailscale
-handles private access; these ports do not need public forwarding.
+Allow **80 and 443** in your provider's firewall too. Port 80 serves certificate
+validation and redirects other requests to HTTPS. Keep **6080, 6081, and 5901
+closed** in both firewalls: the app, desktop proxy, and VNC bind only to localhost.
 
 ## 2. Install Node.js 24 and Chrome
 
@@ -106,37 +110,96 @@ If the destination already contains a checkout, reuse it rather than cloning
 into a populated directory. All runtime commands, session files, and monitor
 state must belong to `ubuntu`.
 
-## 4. Connect Tailscale
+## 4. Configure public HTTPS and the portal password
 
-Install Tailscale on the VPS and follow the authentication URL:
+Edit `.env` and set `LOGIN_PUBLIC_URL=https://YOUR_PUBLIC_IPV4`, replacing
+`YOUR_PUBLIC_IPV4` with the address assigned by your VPS provider. For example,
+`https://203.0.113.10` illustrates the format; that example IP is not a real target.
+Leave `LOGIN_PROXY_TOKEN` blank on the first setup. If using a domain instead,
+point its DNS A record to the VPS and use `https://login.example.com` as the URL.
 
 ```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-sudo tailscale serve --bg http://127.0.0.1:6080
+cd /opt/tradingview-scraper
+nano .env
+/usr/local/bin/npm run login:proxy -- --http-only
+sudo install -d -m 755 /var/www/tradingview-acme
+sudo install -m 600 .auth/tradingview-login.nginx.conf /etc/nginx/sites-available/tradingview-login
+sudo ln -s /etc/nginx/sites-available/tradingview-login /etc/nginx/sites-enabled/tradingview-login
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl enable --now nginx
+sudo systemctl reload nginx
 ```
 
-The final command may ask you to enable HTTPS for your Tailscale network.
-It prints an address such as `https://your-vps.your-network.ts.net`.
-Save that exact HTTPS origin for `LOGIN_PUBLIC_URL` below. It is normal for
-the page to be unavailable until you start the login service in step 7.
+These commands assume a new VPS without existing Nginx sites. On an existing
+server, retain its other sites and reuse the `tradingview-login` link if present.
+The HTTP-only configuration serves ACME challenges; it does not expose the app.
+The helper generates a random private proxy token in `.env` and a private
+configuration in `.auth/`. It reuses the token on later runs and prints neither
+the token nor credentials. Run it as `ubuntu`, without sudo.
 
-Use **Serve** for this private page. Do not enable public Funnel access.
-The application checks the identity header supplied by Serve and accepts only
-the account configured in `LOGIN_ALLOWED_EMAIL`; local processes on the VPS
-are part of this trust boundary. If you share the VPS or your Tailscale network,
-keep its access rules restricted to the intended owner. If Serve is already
-configured on this machine, inspect `sudo tailscale serve status` before replacing
-its root route.
+Install the current stable Certbot snap. IP certificates with webroot require
+**Certbot 5.4 or newer**; check the printed version before proceeding.
 
-On Android, install Tailscale from Google Play, sign in to the same network,
-accept the VPN configuration, and enable it. The login URL works over Wi-Fi
-or mobile data while Tailscale is connected. Configure unattended-server key
-expiry in the Tailscale admin console as appropriate; Tailscale authentication
-is separate from TradingView authentication.
-[Linux installation](https://tailscale.com/docs/install/linux),
-[Android installation](https://tailscale.com/docs/install/android),
-[Serve and access controls](https://tailscale.com/docs/features/tailscale-serve).
+```bash
+sudo snap install --classic certbot
+sudo /snap/bin/certbot --version
+```
+
+For a public IPv4 address, replace `YOUR_PUBLIC_IPV4` below with the same address
+used in `.env`. Certbot prompts for your contact email and terms acceptance.
+
+```bash
+sudo /snap/bin/certbot certonly --webroot -w /var/www/tradingview-acme \
+  --required-profile shortlived --ip-address YOUR_PUBLIC_IPV4 \
+  --cert-name tradingview-login
+```
+
+For a domain, run this command **instead** of the IP command, using your hostname:
+
+```bash
+sudo /snap/bin/certbot certonly --webroot -w /var/www/tradingview-acme \
+  -d login.example.com --cert-name tradingview-login
+```
+
+Stop if issuance fails. Both commands use the certificate name expected by the
+Nginx template. IP certificates last about six days, so automatic renewal is
+required. Keep port 80 reachable for the webroot challenge. A self-signed or
+staging certificate does not provide the trusted HTTPS required for phone access.
+[IP certificates](https://letsencrypt.org/2026/03/11/shorter-certs-certbot),
+[Certbot installation](https://certbot.eff.org/instructions?ws=nginx&os=snap).
+
+Create your portal password interactively. `owner` is a portal username, not a
+new Linux account. Choose a long random password separate from your TradingView
+and VNC passwords. `-c` creates the file; omit it when changing an existing
+password or adding another portal user.
+
+```bash
+sudo htpasswd -cB -C 10 /etc/nginx/tradingview-login.htpasswd owner
+sudo chown root:www-data /etc/nginx/tradingview-login.htpasswd
+sudo chmod 640 /etc/nginx/tradingview-login.htpasswd
+cd /opt/tradingview-scraper
+/usr/local/bin/npm run login:proxy
+sudo install -m 600 .auth/tradingview-login.nginx.conf /etc/nginx/sites-available/tradingview-login
+sudo nginx -t
+sudo systemctl reload nginx
+sudo install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy
+sudo install -m 755 deploy/tradingview-cert-renew.sh /etc/letsencrypt/renewal-hooks/deploy/tradingview-login
+sudo /snap/bin/certbot renew --cert-name tradingview-login --dry-run --run-deploy-hooks
+sudo systemctl list-timers --all 'snap.certbot.renew*'
+```
+
+The snap schedules renewals; the deploy hook checks Nginx configuration and
+reloads it after renewal so the new certificate takes effect. Confirm the
+renewal check succeeds and the timer is scheduled. Once the app starts in
+step 7, open the HTTPS URL from your phone and verify that it requires the
+portal password. Nginx protects all page, API, and desktop requests, including
+WebSocket upgrades, and limits request rates. The app verifies the private
+proxy token and the authenticated username supplied by Nginx; its origin and
+CSRF checks remain enabled. Never run the public service with `--local`.
+[Nginx password authentication](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html),
+[WebSocket proxying](https://nginx.org/en/docs/http/websocket.html),
+[Certbot renewal](https://eff-certbot.readthedocs.io/en/stable/using.html#renewing-certificates).
 
 ## 5. Configure Google Sheets, Telegram, and the app
 
@@ -180,16 +243,20 @@ TELEGRAM_CHAT_ID=YOUR_CHAT_ID
 DAY_OPEN_TIME=03:30
 DAY_END_TIME=02:00
 SESSION_CHECK_INTERVAL_SECONDS=600
-LOGIN_PUBLIC_URL=https://your-vps.your-network.ts.net
-LOGIN_ALLOWED_EMAIL=your-tailscale-sign-in-email@example.com
+LOGIN_PUBLIC_URL=https://YOUR_PUBLIC_IPV4
 LOGIN_TIMEOUT_SECONDS=1200
 LOGIN_PORT=6080
 LOGIN_DESKTOP_PORT=6081
 LOGIN_VNC_PORT=5901
 ```
 
-Use the exact Tailscale login identity for `LOGIN_ALLOWED_EMAIL`, not the
-TradingView email. `LOGIN_PUBLIC_URL` must contain no path, query, or fragment.
+Keep the `LOGIN_PROXY_TOKEN` generated in step 4; it is intentionally omitted
+from the example above. Keep `LOGIN_PUBLIC_URL` equal to the HTTPS origin you
+used for the certificate and Nginx configuration. It must contain no port,
+path, query, or fragment. After changing the URL or `LOGIN_PORT`, regenerate
+and install the Nginx configuration, reload Nginx, and restart both app services.
+If the IP or hostname changes, reissue the certificate for the new address using
+the same `tradingview-login` certificate name before installing that configuration.
 Leave `TRADINGVIEW_SESSION` and `TRADINGVIEW_SESSION_SIGN` blank: `.env` session
 overrides would prevent the monitor from using refreshed browser cookies.
 TradingView username/password are optional; manual entry is supported.
@@ -241,10 +308,10 @@ x11vnc -storepasswd /opt/tradingview-scraper/.auth/vnc.passwd
 chmod 600 /opt/tradingview-scraper/.auth/vnc.passwd
 ```
 
-Choose a VNC password separate from your TradingView password. Classic VNC
-authentication uses only the first eight characters; private Tailscale HTTPS
-and the owner identity check provide the network access boundary. Do not put
-this password in a URL. You enter it in noVNC when connecting to the display.
+Choose a VNC password separate from your TradingView and portal passwords.
+Classic VNC authentication uses only the first eight characters; public access
+is protected by HTTPS and the portal password. Do not put this password in a
+URL. You enter it in noVNC when connecting to the display.
 
 ## 7. Install and start both systemd services
 
@@ -259,20 +326,21 @@ sudo systemctl status tradingview-login.service tradingview-monitor.service
 
 Both services run as `ubuntu` and use the `.env` file directly through Node.
 No shell environment or interactive SSH session is required. The monitor's
-candle/notification state remains under `.state/live`. Its process lock lives in systemd's private
-`/run/tradingview-monitor` directory, which is recreated on service restart
+candle/notification state remains under `.state/live`. Its process lock lives in
+systemd's private `/run/tradingview-monitor` directory, which is recreated on service restart
 and reboot. A crashed process does not leave a permanent boot-blocking lock.
 systemd stops the entire process group before restarting either service.
 
 Before the first login, the monitor stays running in `login-required` state
-and attempts one Telegram notification with your private login link. Repeated
+and attempts one Telegram notification with your HTTPS login link. Repeated
 checks and service restarts do not repeat that incident's notification.
 
 ## 8. Complete login from Android
 
-1. Enable Tailscale on your phone.
-2. Open `LOGIN_PUBLIC_URL` in Chrome, preferably directly rather than Telegram's
+1. Open `LOGIN_PUBLIC_URL` in Chrome, preferably directly rather than Telegram's
    embedded browser.
+2. Enter the portal username (`owner` above) and password in Chrome's sign-in
+   prompt. No VPN or additional Android app is needed.
 3. Tap **Start login**. You can select **Start a fresh TradingView sign-in** if
    switching accounts or replacing a stale browser login.
 4. Connect to the displayed VPS browser and enter the VNC password.
@@ -347,15 +415,27 @@ depending on unattended operation.
 ```bash
 sudo journalctl -u tradingview-login.service -n 100 --no-pager
 sudo journalctl -u tradingview-monitor.service -n 100 --no-pager
-sudo tailscale serve status
+sudo systemctl status nginx
+sudo nginx -t
+sudo /snap/bin/certbot certificates
 sudo ss -ltnp
 sudo systemctl restart tradingview-login.service tradingview-monitor.service
 ```
 
-- **Page returns 403:** check Android's Tailscale connection, exact
-  `LOGIN_ALLOWED_EMAIL`, and that you are using Serve's HTTPS URL. Do not run
-  the production service with `--local`; local mode deliberately skips the
-  Tailscale identity check and is only for access on the local computer.
+- **Page returns 401:** enter the portal username/password, separate from
+  TradingView. Change the password with
+  `sudo htpasswd -B -C 10 /etc/nginx/tradingview-login.htpasswd owner` (without `-c`).
+  Fully close Chrome or use an incognito tab if it keeps supplying an old password.
+- **Page returns 403:** confirm `LOGIN_PROXY_TOKEN` matches the installed Nginx
+  configuration. Regenerate with `npm run login:proxy`, install the private copy
+  as in step 4, reload Nginx, and restart the login service. Use the exact
+  `LOGIN_PUBLIC_URL` when opening the page. Keep production mode enabled.
+- **Page returns 502:** check that `tradingview-login.service` is running and
+  Nginx forwards to its configured localhost port.
+- **HTTPS certificate warning:** inspect `certbot certificates`, the renewal
+  timer, and `sudo journalctl -u snap.certbot.renew.service`. Confirm port 80 is
+  reachable and the deploy hook reloads Nginx. Use the same IP/hostname as the
+  certificate; IP certificates need renewal approximately every six days.
 - **Start login fails:** check `.auth/vnc.passwd`, installed display packages,
   ownership, and `.auth/remote-login.log`. That private file is overwritten for
   each session. Missing display dependencies do not affect the monitor.
@@ -387,6 +467,8 @@ sudo systemctl restart tradingview-login.service tradingview-monitor.service
 To update, stop both services, deploy the new revision, run `npm ci` as the
 `ubuntu` user with `PUPPETEER_SKIP_DOWNLOAD=true`, and restart both services.
 Copy changed service files and run `daemon-reload` if their configuration changed.
+For proxy template changes, regenerate/install the private Nginx configuration,
+run `nginx -t`, and reload Nginx. Preserve the existing proxy token.
 Preserve `.env`, `.auth/`, and `.state/`. Update Ubuntu and Chrome security packages
 regularly; reboot when required and confirm both services recover.
 
@@ -400,6 +482,7 @@ npm run login:server -- --local
 ```
 
 Open `http://127.0.0.1:6080`. Remote desktop launching still requires the Linux
-packages and VNC password above. Production mode requires Tailscale identity
-headers and rejects direct unauthenticated requests. No automated test suite
-is maintained; validation uses actual login, data retrieval, and observed output.
+packages and VNC password above. Production mode requires the private Nginx
+proxy token and an authenticated portal user; it rejects direct requests.
+No automated test suite is maintained; validation uses actual login, data
+retrieval, and observed output.

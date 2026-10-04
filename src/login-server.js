@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readLoginSettings } from './login-settings.js';
 import { LoginController } from './login-controller.js';
 import { proxyDesktop, proxyDesktopSocket } from './desktop-proxy.js';
@@ -23,7 +23,11 @@ for (const [route, file, type] of [
 }
 
 function authorized(request) {
-  return settings.local || request.headers['tailscale-user-login'] === settings.allowedEmail;
+  if (settings.local) return true;
+  const token = request.headers['x-login-proxy-token'];
+  return typeof token === 'string' && /^[a-f0-9]{64}$/i.test(token) &&
+    request.headers['x-forwarded-proto'] === 'https' && Boolean(request.headers['x-login-user']) &&
+    timingSafeEqual(Buffer.from(token, 'hex'), settings.proxyToken);
 }
 function reply(response, status, data) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -53,7 +57,7 @@ const server = http.createServer(async (request, response) => {
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
-  if (!authorized(request)) { reply(response, 403, { error: 'Access requires the configured Tailscale account.' }); return; }
+  if (!authorized(request)) { reply(response, 403, { error: 'Access requires the password-protected HTTPS portal.' }); return; }
   try {
     const url = new URL(request.url, settings.origin);
     if (request.method === 'GET' && assets.has(url.pathname)) {

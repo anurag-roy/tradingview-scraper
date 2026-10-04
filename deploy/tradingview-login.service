@@ -1,7 +1,7 @@
 [Unit]
-Description=Private TradingView login page
+Description=TradingView login portal
 Wants=network-online.target
-After=network-online.target tailscaled.service
+After=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

@@ -1,9 +1,9 @@
 export function publicLoginOrigin(value) {
   let url;
-  try { url = new URL(value); } catch { throw new Error('Set LOGIN_PUBLIC_URL to the HTTPS Tailscale Serve origin.'); }
-  if (url.protocol !== 'https:' || !url.hostname.endsWith('.ts.net') || url.port ||
+  try { url = new URL(value); } catch { throw new Error('Set LOGIN_PUBLIC_URL to the public HTTPS origin.'); }
+  if (url.protocol !== 'https:' || !url.hostname || url.port ||
     url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('LOGIN_PUBLIC_URL must be the HTTPS Tailscale Serve origin, for example https://vps.example.ts.net.');
+    throw new Error('LOGIN_PUBLIC_URL must be an HTTPS origin without a port, path, query, or fragment, for example https://203.0.113.10.');
   }
   return url.origin;
 }
@@ -22,10 +22,13 @@ export function readLoginSettings({ local = false, env = process.env } = {}) {
   if (!Number.isInteger(timeout) || timeout < 30 || timeout > 3600) throw new Error('LOGIN_TIMEOUT_SECONDS must be 30..3600.');
   if (env.TRADINGVIEW_SESSION) throw new Error('Remove TRADINGVIEW_SESSION overrides before using remote login; they override the browser session file.');
   let origin = `http://127.0.0.1:${publicPort}`;
-  const allowedEmail = env.LOGIN_ALLOWED_EMAIL?.trim();
+  let proxyToken;
   if (!local) {
     origin = publicLoginOrigin(env.LOGIN_PUBLIC_URL || '');
-    if (!allowedEmail) throw new Error('Set LOGIN_ALLOWED_EMAIL to your Tailscale sign-in email.');
+    if (!/^[a-f0-9]{64}$/i.test(env.LOGIN_PROXY_TOKEN || '')) {
+      throw new Error('Generate LOGIN_PROXY_TOKEN and the Nginx configuration with npm run login:proxy. See SETUP.md.');
+    }
+    proxyToken = Buffer.from(env.LOGIN_PROXY_TOKEN, 'hex');
   }
-  return { local, publicPort, desktopPort, vncPort, timeout, origin, allowedEmail };
+  return { local, publicPort, desktopPort, vncPort, timeout, origin, proxyToken };
 }

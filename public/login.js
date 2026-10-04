@@ -39,7 +39,7 @@ async function refresh() {
   polling = true;
   try {
     const response = await fetch('/api/status', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Could not read status. Check your Tailscale connection and reload this page.');
+    if (!response.ok) throw new Error('Could not read status. Reload this page and sign in to the portal again.');
     render(await response.json());
     if (connectionError) { element('error').textContent = ''; connectionError = false; }
   } catch (error) { connectionError = true; element('error').textContent = error.message; }

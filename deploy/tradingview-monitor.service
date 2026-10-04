@@ -7,8 +7,8 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=tradingview
-Group=tradingview
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/tradingview-scraper
 RuntimeDirectory=tradingview-monitor
 RuntimeDirectoryMode=0700

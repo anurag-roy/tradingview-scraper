@@ -7,8 +7,8 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=tradingview
-Group=tradingview
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/tradingview-scraper
 ExecStart=/usr/local/bin/node --env-file-if-exists=.env src/login-server.js
 Restart=on-failure

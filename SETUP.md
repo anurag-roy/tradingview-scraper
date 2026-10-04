@@ -2,7 +2,7 @@
 
 This installs the monitor and a private TradingView login page on a new
 **Ubuntu 24.04 LTS x86-64 VPS**. The commands use `/opt/tradingview-scraper`
-and a dedicated Linux user named `tradingview`. Start with 2 vCPUs and 4 GB RAM;
+and your existing `ubuntu` user with sudo access. Start with 2 vCPUs and 4 GB RAM;
 watch actual usage after enabling your configured feeds and adjust if needed.
 
 The monitor runs continuously under systemd. Chrome, a virtual display, and
@@ -22,9 +22,9 @@ flowchart LR
 
 ## 1. Prepare the server
 
-Buy an x86-64 Ubuntu 24.04 VPS, configure an SSH key, and connect using your
-provider's Ubuntu account or an administrator account. `sudo` commands below
-require administrator access. Keep the current SSH session open while setting
+Buy an x86-64 Ubuntu 24.04 VPS, configure an SSH key, and connect as `ubuntu`.
+Run the commands below from that account; use `sudo` where shown for
+administrator access. Keep the current SSH session open while setting
 up networking. If your SSH port differs from 22, adjust the firewall rule.
 
 ```bash
@@ -66,7 +66,7 @@ Stop if download or checksum verification fails. See the
 [official Node.js downloads](https://nodejs.org/en/download) for updated releases.
 
 Install Google's system Chrome package. It brings its Ubuntu dependencies
-and sandbox with it; the browser runs as the dedicated non-root user.
+and sandbox with it; the browser runs as the non-root `ubuntu` user.
 
 ```bash
 curl -fL -o /tmp/google-chrome-stable_current_amd64.deb \
@@ -91,22 +91,20 @@ this checkout first. The commands below clone the GitHub revision; they do not
 upload uncommitted local changes.
 
 ```bash
-sudo useradd --system --user-group --create-home --home-dir /var/lib/tradingview \
-  --shell /usr/sbin/nologin tradingview
-sudo chmod 700 /var/lib/tradingview
-sudo install -d -m 750 -o tradingview -g tradingview /opt/tradingview-scraper
-sudo -u tradingview -H git clone \
+sudo install -d -m 750 -o ubuntu -g ubuntu /opt/tradingview-scraper
+git clone \
   https://github.com/anurag-roy/tradingview-scraper.git /opt/tradingview-scraper
-sudo -u tradingview -H env PUPPETEER_SKIP_DOWNLOAD=true \
+env PUPPETEER_SKIP_DOWNLOAD=true \
   /usr/local/bin/npm ci --prefix /opt/tradingview-scraper
-sudo -u tradingview cp /opt/tradingview-scraper/.env.example /opt/tradingview-scraper/.env
-sudo chmod 600 /opt/tradingview-scraper/.env
-sudo -u tradingview mkdir -m 700 /opt/tradingview-scraper/.auth
+cp /opt/tradingview-scraper/.env.example /opt/tradingview-scraper/.env
+chmod 600 /opt/tradingview-scraper/.env
+mkdir -m 700 /opt/tradingview-scraper/.auth
 ```
 
-If the Linux user or destination already exists, reuse it rather than rerunning
-`useradd` or cloning into a populated directory. All runtime commands, session
-files, and monitor state must belong to this same user.
+Reuse your existing `ubuntu` account; no additional Linux user is needed.
+If the destination already contains a checkout, reuse it rather than cloning
+into a populated directory. All runtime commands, session files, and monitor
+state must belong to `ubuntu`.
 
 ## 4. Connect Tailscale
 
@@ -151,11 +149,11 @@ to column A of `data`; see
 and timeframe columns. The email/password rows can stay blank; you can type
 your TradingView credentials in the remote Chrome window.
 
-Copy the service-account JSON from your computer to your normal SSH account
+Copy the service-account JSON from your computer to the `ubuntu` account
 on the VPS, then install it privately. Replace the source path below:
 
 ```bash
-sudo install -m 600 -o tradingview -g tradingview \
+sudo install -m 600 -o ubuntu -g ubuntu \
   /path/to/uploaded-service-account.json \
   /opt/tradingview-scraper/.auth/google-service-account.json
 ```
@@ -167,7 +165,7 @@ Set the bot token in `.env` before using the chat-ID command below.
 Edit the configuration:
 
 ```bash
-sudo -u tradingview nano /opt/tradingview-scraper/.env
+nano /opt/tradingview-scraper/.env
 ```
 
 Populate these values; replace the placeholders with your own:
@@ -207,7 +205,7 @@ request. It prints chat IDs without printing the token or message contents:
 
 ```bash
 cd /opt/tradingview-scraper
-sudo -u tradingview /usr/local/bin/node --env-file=.env --input-type=module <<'JS'
+/usr/local/bin/node --env-file=.env --input-type=module <<'JS'
 try {
   const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates`, {
     signal: AbortSignal.timeout(10000), redirect: 'error',
@@ -233,14 +231,14 @@ Validate the actual spreadsheet access:
 
 ```bash
 cd /opt/tradingview-scraper
-sudo -u tradingview -H /usr/local/bin/npm run config
+/usr/local/bin/npm run config
 ```
 
 ## 6. Create the screen-access password
 
 ```bash
-sudo -u tradingview -H x11vnc -storepasswd /opt/tradingview-scraper/.auth/vnc.passwd
-sudo chmod 600 /opt/tradingview-scraper/.auth/vnc.passwd
+x11vnc -storepasswd /opt/tradingview-scraper/.auth/vnc.passwd
+chmod 600 /opt/tradingview-scraper/.auth/vnc.passwd
 ```
 
 Choose a VNC password separate from your TradingView password. Classic VNC
@@ -259,9 +257,9 @@ sudo systemctl enable --now tradingview-login.service tradingview-monitor.servic
 sudo systemctl status tradingview-login.service tradingview-monitor.service
 ```
 
-The services use the `.env` file directly through Node. No shell environment
-or interactive SSH session is required. The monitor's candle/notification
-state remains under `.state/live`. Its process lock lives in systemd's private
+Both services run as `ubuntu` and use the `.env` file directly through Node.
+No shell environment or interactive SSH session is required. The monitor's
+candle/notification state remains under `.state/live`. Its process lock lives in systemd's private
 `/run/tradingview-monitor` directory, which is recreated on service restart
 and reboot. A crashed process does not leave a permanent boot-blocking lock.
 systemd stops the entire process group before restarting either service.
@@ -301,7 +299,7 @@ You can separately inspect live TradingView data without sending Telegram:
 
 ```bash
 cd /opt/tradingview-scraper
-sudo -u tradingview -H /usr/local/bin/npm run preview -- --inspect --seconds 40
+/usr/local/bin/npm run preview -- --inspect --seconds 40
 ```
 
 Preview state is separate from live state. Do not start a second live monitor
@@ -365,7 +363,7 @@ sudo systemctl restart tradingview-login.service tradingview-monitor.service
   service journal. The display also disconnects normally after successful login
   or the timeout. Start a new session rather than trying to reuse a closed one.
 - **Chrome sandbox error:** confirm Chrome is installed at the configured path
-  and the login service runs as `tradingview`. Inspect Ubuntu AppArmor logs and
+  and the login service runs as `ubuntu`. Inspect Ubuntu AppArmor logs and
   the [Puppeteer troubleshooting guide](https://pptr.dev/troubleshooting). Keep
   the sandbox and AppArmor enabled; do not work around this with root Chrome.
 - **Google 403:** enable the Sheets API and share the sheet with the service
@@ -387,7 +385,7 @@ sudo systemctl restart tradingview-login.service tradingview-monitor.service
   the services again.
 
 To update, stop both services, deploy the new revision, run `npm ci` as the
-`tradingview` user with `PUPPETEER_SKIP_DOWNLOAD=true`, and restart both services.
+`ubuntu` user with `PUPPETEER_SKIP_DOWNLOAD=true`, and restart both services.
 Copy changed service files and run `daemon-reload` if their configuration changed.
 Preserve `.env`, `.auth/`, and `.state/`. Update Ubuntu and Chrome security packages
 regularly; reboot when required and confirm both services recover.

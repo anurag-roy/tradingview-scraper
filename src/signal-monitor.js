@@ -3,8 +3,10 @@ import { candleSignature, evaluateSignal, formatSignal } from './signals.js';
 import { sessionAt, canDeliver, CLOSE_GRACE_MS } from './session.js';
 import { DeliveryQueue } from './delivery-queue.js';
 import { SessionHealth } from './session-health.js';
+import { subscriptionsFor } from './config.js';
 
-export async function monitor({ subscriptions, store, send, sheet, hours, healthSettings, dryRun, inspect, seconds }) {
+export async function monitor({ subscriptions, configReader, configPollMs, configWarnings,
+  store, send, sheet, hours, healthSettings, dryRun, inspect, seconds }) {
   let child = null;
   let stopping = false;
   let nextConnect = 0;
@@ -19,10 +21,65 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
   const deliveries = new DeliveryQueue(fatal);
   const health = new SessionHealth({ store, deliveries, send, dryRun, settings: healthSettings });
   let collectorRevision;
+  let configRevision = 0;
+  let collectorConfigRevision;
+  let configuredKeys = new Set(subscriptions.map(spec => spec.key));
+  let readingConfig = false;
+  let configReadError;
+  let warningSignature = JSON.stringify(configWarnings);
+  const configController = new AbortController();
   let sourceError;
   let finish;
   const done = new Promise(resolve => { finish = resolve; });
   const log = (type, details) => store.log(type, details);
+
+  async function pollConfig() {
+    if (stopping || readingConfig) return;
+    readingConfig = true;
+    try {
+      let config;
+      try { config = await configReader.read({ signal: configController.signal }); }
+      catch (error) {
+        if (stopping) return;
+        if (error.message !== configReadError) {
+          console.error(`Config refresh failed; keeping the last valid instruments. ${error.message}`);
+          log('config_read_failed', { reason: error.message });
+        }
+        configReadError = error.message;
+        return;
+      }
+      if (stopping) return;
+      if (configReadError) {
+        console.log('Config reads restored.');
+        log('config_read_restored');
+        configReadError = null;
+      }
+      const warnings = JSON.stringify(config.warnings);
+      if (warnings !== warningSignature) {
+        for (const warning of config.warnings) console.log(warning);
+        warningSignature = warnings;
+      }
+      const next = subscriptionsFor(config.instruments);
+      const nextKeys = new Set(next.map(spec => spec.key));
+      const added = next.filter(spec => !configuredKeys.has(spec.key)).map(spec => spec.key);
+      const removed = subscriptions.filter(spec => !nextKeys.has(spec.key)).map(spec => spec.key);
+      subscriptions = next;
+      configuredKeys = nextKeys;
+      if (!added.length && !removed.length) return;
+      configRevision++;
+      nextConnect = 0; failures = 0; sourceError = null;
+      for (const key of removed) {
+        delete snapshots[key];
+        recovered.delete(key);
+        boundaryLive.delete(key);
+      }
+      if (removed.length) { dirty = true; saveSnapshot(); }
+      log('config_applied', { added, removed, streams: subscriptions.length });
+      console.log(`Config applied: ${subscriptions.length} streams | added ${added.join(', ') || 'none'} | removed ${removed.join(', ') || 'none'}`);
+      void reconcile();
+    } catch (error) { fatal(error); }
+    finally { readingConfig = false; }
+  }
 
   function saveSnapshot() {
     if (!dirty) return;
@@ -44,8 +101,9 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
   async function shutdown() {
     if (stopping) return;
     stopping = true;
+    configController.abort();
     health.close();
-    clearInterval(tick); clearInterval(flush); clearTimeout(limit);
+    clearInterval(configTick); clearInterval(tick); clearInterval(flush); clearTimeout(limit);
     process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt);
     const closingDeliveries = deliveries.close();
     try {
@@ -79,10 +137,10 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
   }
 
   function queueDelivery(id, key, record, closeTime) {
-    if (dryRun || !canDeliver(closeTime, Date.now(), activeSession, boundaryLive.has(key))) return;
+    if (dryRun || !configuredKeys.has(key) || !canDeliver(closeTime, Date.now(), activeSession, boundaryLive.has(key))) return;
     const session = activeSession;
     deliveries.enqueue(id, async () => {
-      if (stopping || !health.canCollect || record.status !== 'queued' || store.data.day !== session.day ||
+      if (stopping || !health.canCollect || !configuredKeys.has(key) || record.status !== 'queued' || store.data.day !== session.day ||
         !canDeliver(closeTime, Date.now(), session, boundaryLive.has(key))) return false;
       // Reserve only when this request is about to start. A queued message
       // survives a restart without being mistaken for an attempted delivery.
@@ -116,6 +174,7 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
   function accept(packet) {
     if (!health.canCollect) return;
     const { key, symbol, timeframe, rows, latestClosedTime, pricescale } = packet;
+    if (!configuredKeys.has(key)) return;
     const now = Date.now();
     snapshots[key] = packet;
     dirty = true;
@@ -174,6 +233,8 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
 
   function connect() {
     collectorRevision = health.revision;
+    collectorConfigRevision = configRevision;
+    const collecting = subscriptions;
     recovered = new Set();
     boundaryLive = new Set();
     const collector = fork(new URL('./market-worker.js', import.meta.url), [], {
@@ -191,8 +252,10 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
       try {
         if (packet.type === 'snapshot') {
           accept(packet);
-          if (recovered.size === subscriptions.length) { clearTimeout(watchdog); failures = 0; }
-        } else if (packet.type === 'error') {
+          if (collecting.every(spec => !configuredKeys.has(spec.key) || recovered.has(spec.key))) {
+            clearTimeout(watchdog); failures = 0;
+          }
+        } else if (packet.type === 'error' && collectorConfigRevision === configRevision) {
           console.error(`${packet.scope}: ${packet.reason}`);
           log('source_error', packet);
           health.requestCheck();
@@ -214,7 +277,7 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
       log('disconnected', { reconnectDelayMs: delay });
       console.log(`Disconnected; next in-session connection in ${delay / 1000}s. Unprocessed signals since today's open will be recovered.`);
     });
-    collector.send({ subscriptions, session: activeSession });
+    collector.send({ subscriptions: collecting, session: activeSession });
   }
 
   let lastWaitingDay;
@@ -254,6 +317,16 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
         }
         return;
       }
+      // Keep unchanged streams alive for their final closing-boundary grace.
+      // Removed keys are already blocked from both evaluation and delivery.
+      const closing = Date.now() >= session.end && Date.now() <= session.end + CLOSE_GRACE_MS;
+      if (child && collectorConfigRevision !== configRevision && (!closing || inspect || !subscriptions.length)) {
+        console.log('Sheet instruments changed; refreshing the collector.');
+        saveSnapshot();
+        await stopChild();
+        if (stopping) return;
+        nextConnect = 0;
+      }
       if (sourceError && health.state.status === 'healthy') {
         fatal(new Error(`${sourceError}. Authentication is valid; check the Sheet/account permissions before restarting.`));
         return;
@@ -274,16 +347,18 @@ export async function monitor({ subscriptions, store, send, sheet, hours, health
         }
         return;
       }
-      if (!child && (active || inspect) && now >= nextConnect) connect();
+      if (!child && subscriptions.length && (active || inspect) && now >= nextConnect) connect();
     } catch (error) { fatal(error); }
     finally { reconciling = false; }
   }
   const interrupt = () => { void shutdown(); };
+  const configTick = setInterval(pollConfig, configPollMs);
   const tick = setInterval(reconcile, 1000);
   const flush = setInterval(() => { try { saveSnapshot(); } catch (error) { fatal(error); } }, 5000);
   const limit = seconds ? setTimeout(interrupt, seconds * 1000) : undefined;
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
+  console.log(`Watching Sheet instruments every ${configPollMs / 1000}s.${subscriptions.length ? '' : ' No active instruments; waiting for Sheet edits.'}`);
   reconcile();
   await done;
 }

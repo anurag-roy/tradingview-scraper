@@ -337,6 +337,13 @@ systemd's private `/run/tradingview-monitor` directory, which is recreated on se
 and reboot. A crashed process does not leave a permanent boot-blocking lock.
 systemd stops the entire process group before restarting either service.
 
+The monitor polls the Sheet's instruments and timeframes every five seconds
+(`CONFIG_POLL_MS=5000`). Adding, replacing, or blanking them applies automatically
+without a service restart. Added streams recover this session's unprocessed
+closed-candle signals from its opening time. A read or validation error keeps the
+last valid list; clearing all instruments pauses collection until new ones are
+added. `.env` changes still require restarting the service.
+
 Before the first login, the monitor stays running in `login-required` state
 and attempts one Telegram notification with your HTTPS login link. Repeated
 checks and service restarts do not repeat that incident's notification.

@@ -39,11 +39,11 @@ export async function createConfigReader(env = process.env) {
   const range = `'${tab.replaceAll("'", "''")}'!A1:E8`;
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`;
   return {
-    async read() {
+    async read({ signal } = {}) {
       let response;
       try {
         const client = await auth.getClient();
-        response = await client.request({ url, method: 'GET', params: { majorDimension: 'ROWS', valueRenderOption: 'FORMATTED_VALUE' }, timeout: 20_000, retry: false });
+        response = await client.request({ url, method: 'GET', params: { majorDimension: 'ROWS', valueRenderOption: 'FORMATTED_VALUE' }, timeout: 20_000, retry: false, signal });
       } catch (error) {
         // Google errors can contain request headers, key material or response cells.
         const status = error.response?.status;

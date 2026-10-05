@@ -126,6 +126,31 @@ across restarts. These alerts are for human reading; there is no trade execution
 
 ## Commands and state
 
+The live and preview monitors read the Sheet's instruments and timeframes every
+five seconds by default (`CONFIG_POLL_MS`, an integer of at least 1000
+milliseconds). Only a change to the deduplicated symbol/timeframe subscriptions
+refreshes the collector; moving the same stream between slots or writing an
+equivalent timeframe does not reconnect. The refresh briefly reloads all active
+chart/study histories. Their saved candle records and queued messages are kept.
+New streams use the same catch-up policy as startup: every unprocessed qualifying
+closed candle from this session's opening, including candles before the edit.
+Removing and readding a stream in the same session retains its delivery history.
+
+Removed streams are excluded from incoming packets and checked again immediately
+before each Telegram attempt. Queued messages for a removed stream are withheld;
+they can resume if that stream is readded during the session. An already-started
+request can finish, and previous `data` messages stay until normal session cleanup.
+Unchanged streams can finish their closing-boundary grace when an edit arrives
+at the session cutoff; added streams wait for the next monitoring session.
+
+Config reads run independently of collection and delivery, with no overlapping
+polls. A failed read or invalid populated cell logs an error and keeps the last
+valid instrument list. Correcting the Sheet is picked up by a later poll.
+Blanking all instruments pauses the collector while polling continues; the
+monitor can also start with an empty list. Polling continues outside market hours
+and while TradingView login is unavailable. Changing email/password cells does
+not replace the saved browser-session authentication.
+
 `npm start` runs indefinitely. `npm run preview` uses identical conditions but
 prints messages without contacting Telegram or writing to Sheets. Either accepts `--seconds N`
 (5–86400) for a bounded run. Preview also accepts `--inspect` to fetch current
@@ -176,8 +201,11 @@ notification records in `.state/live`. Foreground live commands also use the
 service's runtime directory when present; elsewhere they retain the usual
 state-directory lock unless `MONITOR_LOCK_DIRECTORY` is configured.
 
-Google Sheet and `.env` settings are read once;
-restart after editing them. A collector child process owns the single shared
+`.env` settings are read once; restart after editing them. The diagnostic
+snapshot/watch/login/config commands also read the Sheet once per command.
+Config changes and failures are logged as `config_applied`, `config_read_failed`,
+and `config_read_restored` in `events.jsonl`.
+A collector child process owns the single shared
 WebSocket so a stuck dependency connection can be stopped completely before
 replacement. Telegram requests stay in the parent process.
 
@@ -205,3 +233,23 @@ historical signal messages with candle times. Restarting the preview with the
 same state printed no duplicate signals and retained the same evaluation count.
 No Telegram requests were made; outbound queue pacing remains unverified with
 Telegram. No automated tests were added or run.
+
+## Live config-change preview, 5 October 2026
+
+A temporary configuration tab in the actual spreadsheet was edited manually
+while preview collected real TradingView data. The live `config` and `data` tabs
+were left intact. Preview used a 03:30–03:00 next-day window to observe catch-up
+during the normal 02:00–03:30 break; the production window was unchanged.
+
+- Adding a fourth instrument loaded its history and printed its earlier signals.
+- Replacing a symbol and changing 15m to 5m refreshed the appropriate subscriptions.
+- Moving unchanged streams between slots produced no reconnect.
+- An invalid timeframe retained the working list; correction restored reads.
+- Clearing all slots stopped the collector while the parent kept polling.
+- Starting with an empty list and readding ETHUSD 15m loaded 91 session candles
+  without repeating its 90 existing evaluations. Total state stayed at 497
+  evaluations and 52 preview signals.
+
+The temporary tab was removed afterward. No Telegram messages or signal-sheet
+appends were attempted. Syntax and diff checks passed; no automated tests were
+added or run.

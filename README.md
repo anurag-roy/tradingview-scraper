@@ -133,13 +133,32 @@ npm run snapshot   # Fetch every configured symbol/timeframe using the saved ses
 npm run watch      # Same configuration, streamed for ten minutes
 ```
 
-The sheet is read **once at the start of each command**. Restart a running
-capture to apply edits; automatic config polling is not part of this step.
+The signal monitor (`npm start` and `npm run preview`) rereads instruments and
+timeframes every **five seconds** (`CONFIG_POLL_MS`, minimum 1000 milliseconds).
+Sheet edits apply automatically, including additions, replacements, timeframe
+changes, and removal by blanking a symbol or its timeframes. Changes refresh the
+collector; loading the new chart/study history adds to the polling delay.
+New streams recover all unprocessed qualifying closed candles since the current
+session opening, including signals from before the edit. Existing evaluation
+records prevent duplicate attempts, including when a stream is removed and added
+again in the same session. Removed streams stop producing new alert attempts;
+a Telegram request already in flight can finish. Previously delivered messages
+remain in `data` until the normal session cleanup.
+
+Failed reads or invalid populated cells keep the last valid configuration and
+log the problem. If all slots are blank, the monitor keeps polling with no
+collector and starts collecting when instruments are added. Polling continues
+outside trading hours and while login is unavailable. Sheet login credentials
+do not replace the saved TradingView browser session.
+
+Snapshot/watch/login/config commands read the sheet **once at startup**; restart
+a running diagnostic capture to apply edits. `.env` settings also require a restart.
 A blank symbol disables a slot. A symbol without timeframes in C–E is skipped.
 Columns F onward are ignored. Minute counts, `5m`, `30min`, `1h` and comma/semicolon
 lists are accepted; subscriptions are deduplicated while retaining their slot
-and column mappings. Invalid populated cells stop the run with a cell address.
-If all slots are blank, no TradingView connection is opened.
+and column mappings. Invalid populated cells stop initial startup with a cell
+address; during monitoring they leave the previous configuration active.
+If all slots are blank, no TradingView chart connection is opened.
 
 Timeframe syntax and TradingView entitlement are separate: a live request for
 `10m` was rejected by this free account with `custom_resolution`. The collector

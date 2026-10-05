@@ -17,6 +17,14 @@ export function parseSymbol(raw) {
   return symbol;
 }
 
+export function readConfigPollMs(env = process.env) {
+  const interval = Number(env.CONFIG_POLL_MS || 5000);
+  if (!Number.isInteger(interval) || interval < 1000) {
+    throw new Error('CONFIG_POLL_MS must be an integer of at least 1000.');
+  }
+  return interval;
+}
+
 export function parseConfigRows(rows) {
   const entries = new Map();
   const warnings = [];

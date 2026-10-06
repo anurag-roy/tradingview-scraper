@@ -41,10 +41,15 @@ volumes 130, 80, 90, **120** give x=2; 90, 80, 130, **120** cannot signal.
 Unexplained timestamp gaps or invalid volumes withhold an alert when the
 previous candle or exact x cannot be established.
 
+The **wick** field is `(high - open) / (high + low)` for Buy and
+`(close - low) / (high + low)` for Sell, using the signal candle's prices.
+Round to at most four decimal places, remove unnecessary trailing zeros,
+and append `%` directly to the ratio without multiplying by 100.
+
 ```text
-Underlying : Buy/Sell : Time frame : x : Low/High : Candle Time
-GOLD : Buy : 15m : 2 : 432.5 : 2026-10-02 09:30 IST
-GOLD : Sell : 1h : 3 : 438.7 : 2026-10-02 10:30 IST
+Underlying : Buy/Sell : Time frame : x : wick% : Low/High : Candle Time
+GOLD : Buy : 15m : 2 : 0.0046% : 432.5 : 2026-10-02 09:30 IST
+GOLD : Sell : 1h : 3 : 0.0011% : 438.7 : 2026-10-02 10:30 IST
 ```
 
 `FX:XAUUSD` maps to GOLD. All other symbols use the suffix after `:`:

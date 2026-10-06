@@ -31,7 +31,9 @@ export function evaluateSignal(rows, index, timeframe) {
     if (rows[i].volume >= current.volume) break;
     x++;
   }
-  return { side, x, price: side === 'Buy' ? current.low : current.high };
+  const wick = (side === 'Buy' ? current.high - current.open : current.close - current.low)
+    / (current.high + current.low);
+  return { side, x, wick, price: side === 'Buy' ? current.low : current.high };
 }
 
 export function formatSignal(symbol, timeframe, signal, pricescale, candleTime) {
@@ -43,6 +45,7 @@ export function formatSignal(symbol, timeframe, signal, pricescale, candleTime) 
   const decimals = Number.isFinite(pricescale) && pricescale > 0
     ? Math.min(12, Math.max(0, Math.ceil(Math.log10(pricescale)))) : 10;
   const price = String(Number(signal.price.toFixed(decimals)));
+  const wick = `${Number(signal.wick.toFixed(4))}%`;
   const time = `${formatIst(candleTime).slice(0, 16).replace('T', ' ')} IST`;
-  return `${underlying} : ${signal.side} : ${interval} : ${signal.x} : ${price} : ${time}`;
+  return `${underlying} : ${signal.side} : ${interval} : ${signal.x} : ${wick} : ${price} : ${time}`;
 }

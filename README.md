@@ -21,7 +21,9 @@ npm run preview -- --inspect --seconds 40  # Inspect today's data outside hours 
 The monitor requires the Google Sheet and saved TradingView login. It runs
 daily from **03:30 AM to 02:00 AM the next day, IST**, waiting between sessions. It evaluates only
 fully closed candles inside that window using the agreed green/red, POC and
-volume rules. Example message: `GOLD : Buy : 15m : 2 : 432.5 : 2026-10-02 09:30 IST`.
+volume rules. Example message: `GOLD : Buy : 15m : 2 : 0.0046% : 432.5 : 2026-10-02 09:30 IST`.
+Wick follows x: `(high - open) / (high + low)` for Buy, `(close - low) / (high + low)`
+for Sell, rounded to at most four decimals with `%` appended without multiplying by 100.
 The final field is the candle's opening date and time in IST.
 
 Configure the window in `.env` using 24-hour IST times:

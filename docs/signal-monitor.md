@@ -41,13 +41,13 @@ volumes 130, 80, 90, **120** give x=2; 90, 80, 130, **120** cannot signal.
 Unexplained timestamp gaps or invalid volumes withhold an alert when the
 previous candle or exact x cannot be established.
 
-The **wick** field is `(high - open) / (high - low)` for Buy and
+The **wick** field is `(high - close) / (high - low)` for Buy and
 `(close - low) / (high - low)` for Sell, using the signal candle's prices.
 Multiply the ratio by 100, round to a whole number, and append `%`.
 
 ```text
 Underlying : Buy/Sell : Time frame : x : wick% : Low/High : Candle Time
-GOLD : Buy : 15m : 2 : 60% : 4124 : 2026-10-06 09:00 IST
+GOLD : Buy : 15m : 2 : 19% : 4124 : 2026-10-06 09:00 IST
 USOIL : Sell : 15m : 7 : 31% : 90.028 : 2026-10-06 10:15 IST
 ```
 

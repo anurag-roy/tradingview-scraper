@@ -7,7 +7,7 @@ export function candleSignature(row) {
 }
 
 export function calculateWick(row, side) {
-  return (side === 'Buy' ? row.high - row.open : row.close - row.low) / (row.high - row.low);
+  return (side === 'Buy' ? row.high - row.close : row.close - row.low) / (row.high - row.low);
 }
 
 export function formatWick(wick) {

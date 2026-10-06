@@ -22,8 +22,8 @@ npm run --silent messages                 # Print today's saved signals with cur
 The monitor requires the Google Sheet and saved TradingView login. It runs
 daily from **03:30 AM to 02:00 AM the next day, IST**, waiting between sessions. It evaluates only
 fully closed candles inside that window using the agreed green/red, POC and
-volume rules. Example message: `GOLD : Buy : 15m : 2 : 60% : 4124 : 2026-10-06 09:00 IST`.
-Wick follows x: `(high - open) / (high - low)` for Buy, `(close - low) / (high - low)`
+volume rules. Example message: `GOLD : Buy : 15m : 2 : 19% : 4124 : 2026-10-06 09:00 IST`.
+Wick follows x: `(high - close) / (high - low)` for Buy, `(close - low) / (high - low)`
 for Sell. Multiply the ratio by 100, round to a whole number, and append `%`.
 The final field is the candle's opening date and time in IST.
 

@@ -41,15 +41,14 @@ volumes 130, 80, 90, **120** give x=2; 90, 80, 130, **120** cannot signal.
 Unexplained timestamp gaps or invalid volumes withhold an alert when the
 previous candle or exact x cannot be established.
 
-The **wick** field is `(high - open) / (high + low)` for Buy and
-`(close - low) / (high + low)` for Sell, using the signal candle's prices.
-Round to at most four decimal places, remove unnecessary trailing zeros,
-and append `%` directly to the ratio without multiplying by 100.
+The **wick** field is `(high - open) / (high - low)` for Buy and
+`(close - low) / (high - low)` for Sell, using the signal candle's prices.
+Multiply the ratio by 100, round to a whole number, and append `%`.
 
 ```text
 Underlying : Buy/Sell : Time frame : x : wick% : Low/High : Candle Time
-GOLD : Buy : 15m : 2 : 0.0046% : 432.5 : 2026-10-02 09:30 IST
-GOLD : Sell : 1h : 3 : 0.0011% : 438.7 : 2026-10-02 10:30 IST
+GOLD : Buy : 15m : 2 : 60% : 4124 : 2026-10-06 09:00 IST
+USOIL : Sell : 15m : 7 : 31% : 90.028 : 2026-10-06 10:15 IST
 ```
 
 `FX:XAUUSD` maps to GOLD. All other symbols use the suffix after `:`:
@@ -162,6 +161,18 @@ prints messages without contacting Telegram or writing to Sheets. Either accepts
 session history outside monitoring hours; it still does not evaluate past
 signals outside the window. The original snapshot/watch commands remain
 independent diagnostics and never send messages.
+
+For a copyable list of the current session's saved signal messages, run
+`npm run --silent messages` on the monitor's machine. The command recalculates
+wick using the original evaluation prices where available, preserving all other
+message fields, then prints one message per line in candle-time order. It handles
+both messages without wick and messages with an older wick value. Every saved
+signal is included regardless of Telegram or Sheet delivery outcome. It only
+reads the saved state and event log, so it can run alongside the monitor without
+contacting TradingView, Sheets, or Telegram. It uses the configured session hours,
+including the overnight session, and rejects state from a different session.
+Use `--state-dir /path/to/state` to select a different directory. This is a list
+of signals already recorded by the monitor, not a fresh history fetch.
 
 State is private and ignored by Git:
 

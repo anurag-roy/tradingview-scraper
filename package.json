@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/monitor-cli.js",
     "preview": "node --env-file-if-exists=.env src/monitor-cli.js --dry-run",
+    "messages": "node --env-file-if-exists=.env src/messages-cli.js",
     "snapshot": "node --env-file-if-exists=.env src/cli.js --seconds 15",
     "watch": "node --env-file-if-exists=.env src/cli.js --seconds 600",
     "login": "node --env-file-if-exists=.env src/login.js",

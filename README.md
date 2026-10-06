@@ -16,14 +16,15 @@ to send messages. Then run:
 npm start                                 # Continuous monitoring from your Sheet
 npm run preview                           # Print alerts without sending or writing them
 npm run preview -- --inspect --seconds 40  # Inspect today's data outside hours too
+npm run --silent messages                 # Print today's saved signals with current wick values
 ```
 
 The monitor requires the Google Sheet and saved TradingView login. It runs
 daily from **03:30 AM to 02:00 AM the next day, IST**, waiting between sessions. It evaluates only
 fully closed candles inside that window using the agreed green/red, POC and
-volume rules. Example message: `GOLD : Buy : 15m : 2 : 0.0046% : 432.5 : 2026-10-02 09:30 IST`.
-Wick follows x: `(high - open) / (high + low)` for Buy, `(close - low) / (high + low)`
-for Sell, rounded to at most four decimals with `%` appended without multiplying by 100.
+volume rules. Example message: `GOLD : Buy : 15m : 2 : 60% : 4124 : 2026-10-06 09:00 IST`.
+Wick follows x: `(high - open) / (high - low)` for Buy, `(close - low) / (high - low)`
+for Sell. Multiply the ratio by 100, round to a whole number, and append `%`.
 The final field is the candle's opening date and time in IST.
 
 Configure the window in `.env` using 24-hour IST times:
@@ -61,6 +62,15 @@ are never retried. Later candle revisions are logged without correction messages
 See [the full signal rules and operating details](docs/signal-monitor.md),
 including cutoff behavior, local delivery logs, and crash recovery.
 Stop with Ctrl+C. Restart to apply Sheet or `.env` edits.
+
+To copy today's corrected messages into Sheets manually, run `npm run --silent messages`
+on the machine running the monitor. It reads `.state/live/`, recalculates wick for
+every saved signal in the current trading session, and prints one message per line
+in candle-time order. Other message fields are preserved. It includes saved signals
+regardless of their delivery outcome and can run alongside the monitor. It makes
+no Sheet or Telegram requests and does not modify saved state. Use
+`npm run --silent messages -- --state-dir /path/to/state` for a different state directory.
+This command uses signals already recorded by the monitor; it does not fetch history.
 
 ## Ubuntu VPS and phone login
 

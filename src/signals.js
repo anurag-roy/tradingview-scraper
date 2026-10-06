@@ -6,6 +6,14 @@ export function candleSignature(row) {
   return JSON.stringify([row.open, row.high, row.low, row.close, row.volume, row.poc]);
 }
 
+export function calculateWick(row, side) {
+  return (side === 'Buy' ? row.high - row.open : row.close - row.low) / (row.high - row.low);
+}
+
+export function formatWick(wick) {
+  return `${Math.round(wick * 100)}%`;
+}
+
 /** Rows are native candles in ascending order, restricted to this session. */
 export function evaluateSignal(rows, index, timeframe) {
   const current = rows[index];
@@ -31,8 +39,7 @@ export function evaluateSignal(rows, index, timeframe) {
     if (rows[i].volume >= current.volume) break;
     x++;
   }
-  const wick = (side === 'Buy' ? current.high - current.open : current.close - current.low)
-    / (current.high + current.low);
+  const wick = calculateWick(current, side);
   return { side, x, wick, price: side === 'Buy' ? current.low : current.high };
 }
 
@@ -45,7 +52,7 @@ export function formatSignal(symbol, timeframe, signal, pricescale, candleTime) 
   const decimals = Number.isFinite(pricescale) && pricescale > 0
     ? Math.min(12, Math.max(0, Math.ceil(Math.log10(pricescale)))) : 10;
   const price = String(Number(signal.price.toFixed(decimals)));
-  const wick = `${Number(signal.wick.toFixed(4))}%`;
+  const wick = formatWick(signal.wick);
   const time = `${formatIst(candleTime).slice(0, 16).replace('T', ' ')} IST`;
   return `${underlying} : ${signal.side} : ${interval} : ${signal.x} : ${wick} : ${price} : ${time}`;
 }

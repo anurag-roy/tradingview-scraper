@@ -27,10 +27,11 @@
 
 | Side | Conditions | High/Low field |
 | --- | --- | --- |
-| Buy | close > open AND POC < open AND volume > previous volume | candle low |
-| Sell | close < open AND POC > open AND volume > previous volume | candle high |
+| Buy | close > open AND POC < open AND volume > previous volume AND wick ≤ 10% | candle low |
+| Sell | close < open AND POC > open AND volume > previous volume AND wick ≤ 10% | candle high |
 
-All comparisons are strict. Dojis, equal POC/open, and equal volumes fail.
+Price, POC and volume comparisons are strict. Dojis, equal POC/open, and equal volumes fail.
+The wick limit is inclusive: exactly 10% qualifies.
 The previous candle is from the same symbol, timeframe and session.
 
 The volume field is **x**, the count of consecutive preceding candles whose
@@ -43,12 +44,13 @@ previous candle or exact x cannot be established.
 
 The **wick** field is `(high - close) / (high - low)` for Buy and
 `(close - low) / (high - low)` for Sell, using the signal candle's prices.
-Multiply the ratio by 100, round to a whole number, and append `%`.
+The unrounded ratio must be ≤ 0.10 for either side to signal. For display,
+multiply the ratio by 100, round to a whole number, and append `%`.
 
 ```text
 Underlying : Buy/Sell : Time frame : x : wick% : Low/High : Candle Time
-GOLD : Buy : 15m : 2 : 19% : 4124 : 2026-10-06 09:00 IST
-USOIL : Sell : 15m : 7 : 31% : 90.028 : 2026-10-06 10:15 IST
+GOLD : Buy : 15m : 2 : 8% : 4124 : 2026-10-06 09:00 IST
+USOIL : Sell : 15m : 7 : 10% : 90.028 : 2026-10-06 10:15 IST
 ```
 
 `FX:XAUUSD` maps to GOLD. All other symbols use the suffix after `:`:

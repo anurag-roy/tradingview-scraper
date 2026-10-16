@@ -30,6 +30,8 @@ export function evaluateSignal(rows, index, timeframe) {
   const side = current.close > current.open && current.poc < current.open ? 'Buy'
     : current.close < current.open && current.poc > current.open ? 'Sell' : null;
   if (!side) return { reason: 'price-or-poc-condition' };
+  const wick = calculateWick(current, side);
+  if (!Number.isFinite(wick) || wick > 0.10) return { reason: 'wick-above-limit' };
   let x = 0;
   for (let i = index - 1; i >= 0; i--) {
     // An unexplained hole prevents us from claiming an exact consecutive count.
@@ -39,7 +41,6 @@ export function evaluateSignal(rows, index, timeframe) {
     if (rows[i].volume >= current.volume) break;
     x++;
   }
-  const wick = calculateWick(current, side);
   return { side, x, wick, price: side === 'Buy' ? current.low : current.high };
 }
 
